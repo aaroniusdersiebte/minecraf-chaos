@@ -4,6 +4,7 @@ import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LightningEntity;
 import net.minecraft.entity.boss.BossBar;
 import net.minecraft.entity.boss.CommandBossBar;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -21,8 +22,8 @@ public class WaveManager {
 
     // Wave configuration
     private static final int SPAWN_LOCATIONS_COUNT = 3;
-    private static final int MIN_SPAWN_DISTANCE = 35;
-    private static final int MAX_SPAWN_DISTANCE = 55;
+    private static final int MIN_SPAWN_DISTANCE = 40;
+    private static final int MAX_SPAWN_DISTANCE = 60;
 
     // Wave phases
     private enum WavePhase {
@@ -62,6 +63,8 @@ public class WaveManager {
     private long phaseStartTick = 0;
     private List<SpawnLocation> spawnLocations = new ArrayList<>();
     private Map<UUID, CommandBossBar> playerBossBars = new HashMap<>();
+    private CommandBossBar coreHPBossBar = null;
+    private int coreCheckTimer = 0;
 
     public void onServerTick(MinecraftServer server, ChaosManager chaosManager) {
         for (ServerWorld world : server.getWorlds()) {
@@ -72,6 +75,16 @@ public class WaveManager {
 
             List<ServerPlayerEntity> players = world.getPlayers();
             if (players.isEmpty()) continue;
+
+            // Update core HP boss bar
+            updateCoreHPBossBar(server, players);
+
+            // Check for mobs attacking the core (every 20 ticks = 1 second)
+            coreCheckTimer++;
+            if (coreCheckTimer >= 20) {
+                coreCheckTimer = 0;
+                checkCoreAttacks(world, players);
+            }
 
             if (isNight) {
                 processNightWaves(world, players, chaosManager, timeOfDay);
@@ -87,12 +100,13 @@ public class WaveManager {
     private void processNightWaves(ServerWorld world, List<ServerPlayerEntity> players,
                                    ChaosManager chaosManager, long timeOfDay) {
         int chaosLevel = chaosManager.getChaosLevel();
-        if (chaosLevel <= 0) return;
+        // Allow waves to start even at chaos 0 (minimum difficulty)
+        if (chaosLevel < 0) chaosLevel = 0;
 
         long currentTick = world.getTime();
 
-        // Initialize spawn locations at night start
-        if (timeOfDay >= 13000 && timeOfDay < 13100 && currentPhase == WavePhase.INACTIVE) {
+        // Initialize spawn locations at night start (larger window: 13000-13500 = 25 seconds)
+        if (timeOfDay >= 13000 && timeOfDay < 13500 && currentPhase == WavePhase.INACTIVE) {
             startWaveNight(world, players);
             currentPhase = WavePhase.WARNING;
             phaseStartTick = currentTick;
@@ -204,19 +218,44 @@ public class WaveManager {
     private void startWaveNight(ServerWorld world, List<ServerPlayerEntity> players) {
         spawnLocations.clear();
 
-        for (ServerPlayerEntity player : players) {
-            // Create 3 spawn locations per player
-            for (int i = 0; i < SPAWN_LOCATIONS_COUNT; i++) {
-                BlockPos spawnPos = findRandomSpawnLocation(world, player.getBlockPos());
-                SpawnLocation location = new SpawnLocation(spawnPos, player.getUuid());
-                spawnLocations.add(location);
-
-                // Create initial visual marker
-                createSpawnMarker(world, spawnPos, true);
+        // Check if village core is set
+        VillageManager villageManager = ChaosMod.getVillageManager();
+        if (!villageManager.hasVillageCore()) {
+            // No village core - warn admins but don't spawn
+            for (ServerPlayerEntity player : players) {
+                if (player.hasPermissionLevel(2)) { // Op level
+                    player.sendMessage(Text.literal("§c§l[TD] No village core set! Use '/chaos setvillage' to set spawn target."), false);
+                }
             }
+            return;
+        }
 
-            player.sendMessage(Text.literal("§c§l⚠ CHAOS NIGHT BEGINS! ⚠"), false);
-            player.sendMessage(Text.literal("§e" + SPAWN_LOCATIONS_COUNT + " spawn points have been marked!"), false);
+        // Check if game is over
+        if (villageManager.isGameOver()) {
+            for (ServerPlayerEntity player : players) {
+                player.sendMessage(Text.literal("§c§l[TD] Village core destroyed! Use '/chaos resetvillage' to start a new round."), false);
+            }
+            return;
+        }
+
+        BlockPos villageCorePos = villageManager.getVillageCorePos();
+
+        // Create spawn locations around village core (not per player)
+        for (int i = 0; i < SPAWN_LOCATIONS_COUNT; i++) {
+            BlockPos spawnPos = findRandomSpawnLocation(world, villageCorePos);
+            // Use first player's UUID as owner (tower defense is cooperative)
+            SpawnLocation location = new SpawnLocation(spawnPos, players.get(0).getUuid());
+            spawnLocations.add(location);
+
+            // Create initial visual marker
+            createSpawnMarker(world, spawnPos, true);
+        }
+
+        // Notify all players
+        for (ServerPlayerEntity player : players) {
+            player.sendMessage(Text.literal("§c§l⚠ MONSTER WAVE APPROACHING! ⚠"), false);
+            player.sendMessage(Text.literal("§e§lDefend the village core at " + villageCorePos.toShortString() + "!"), false);
+            player.sendMessage(Text.literal("§e" + SPAWN_LOCATIONS_COUNT + " spawn points marked around the village!"), false);
         }
 
         // Play warning sound
@@ -360,6 +399,60 @@ public class WaveManager {
             bar.clearPlayers();
         }
         playerBossBars.clear();
+
+        // Also clear core HP boss bar
+        if (coreHPBossBar != null) {
+            coreHPBossBar.clearPlayers();
+            coreHPBossBar = null;
+        }
+    }
+
+    private void updateCoreHPBossBar(MinecraftServer server, List<ServerPlayerEntity> players) {
+        VillageManager villageManager = ChaosMod.getVillageManager();
+
+        // Remove boss bar if no village core
+        if (!villageManager.hasVillageCore()) {
+            if (coreHPBossBar != null) {
+                coreHPBossBar.clearPlayers();
+                coreHPBossBar = null;
+            }
+            return;
+        }
+
+        // Create or get existing boss bar
+        if (coreHPBossBar == null) {
+            Identifier id = new Identifier("chaosstream", "core_hp");
+            // Try to get existing bar first (prevents duplicates on reload)
+            coreHPBossBar = server.getBossBarManager().get(id);
+            if (coreHPBossBar == null) {
+                coreHPBossBar = server.getBossBarManager().add(id, Text.literal("Village Core"));
+            }
+        }
+
+        // Update boss bar
+        int currentHP = villageManager.getCoreHP();
+        int maxHP = villageManager.getMaxCoreHP();
+        float percent = (float) currentHP / (float) maxHP;
+
+        // Color based on HP percentage
+        BossBar.Color color;
+        if (percent > 0.66f) {
+            color = BossBar.Color.GREEN;
+        } else if (percent > 0.33f) {
+            color = BossBar.Color.YELLOW;
+        } else {
+            color = BossBar.Color.RED;
+        }
+
+        String statusIcon = villageManager.isGameOver() ? "§c✖" : "§a❤";
+        coreHPBossBar.setName(Text.literal(statusIcon + " §eVillage Core: §f" + currentHP + "/" + maxHP));
+        coreHPBossBar.setPercent(percent);
+        coreHPBossBar.setColor(color);
+
+        // Add all players to boss bar
+        for (ServerPlayerEntity player : players) {
+            coreHPBossBar.addPlayer(player);
+        }
     }
 
     private void resetWaves(MinecraftServer server) {
@@ -369,13 +462,13 @@ public class WaveManager {
         ChaosMod.LOGGER.info("Wave system reset (day time)");
     }
 
-    private BlockPos findRandomSpawnLocation(ServerWorld world, BlockPos playerPos) {
+    private BlockPos findRandomSpawnLocation(ServerWorld world, BlockPos centerPos) {
         for (int attempt = 0; attempt < 20; attempt++) {
             double angle = RANDOM.nextDouble() * Math.PI * 2;
             double distance = MIN_SPAWN_DISTANCE + RANDOM.nextDouble() * (MAX_SPAWN_DISTANCE - MIN_SPAWN_DISTANCE);
 
-            int x = playerPos.getX() + (int)(Math.cos(angle) * distance);
-            int z = playerPos.getZ() + (int)(Math.sin(angle) * distance);
+            int x = centerPos.getX() + (int)(Math.cos(angle) * distance);
+            int z = centerPos.getZ() + (int)(Math.sin(angle) * distance);
             int y = world.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
 
             BlockPos pos = new BlockPos(x, y, z);
@@ -387,7 +480,7 @@ public class WaveManager {
         }
 
         // Fallback
-        return playerPos.add(MIN_SPAWN_DISTANCE, 0, 0);
+        return centerPos.add(MIN_SPAWN_DISTANCE, 0, 0);
     }
 
     private int getMobCount(int waveNumber, int chaosLevel) {
@@ -444,9 +537,18 @@ public class WaveManager {
     public void forceStartWave(ServerWorld world, ServerPlayerEntity player, int chaosLevel) {
         spawnLocations.clear();
 
-        // Create spawn locations
+        // Check if village core is set
+        VillageManager villageManager = ChaosMod.getVillageManager();
+        if (!villageManager.hasVillageCore()) {
+            player.sendMessage(Text.literal("§c§l[TD] No village core set! Use '/chaos setvillage' first."), false);
+            return;
+        }
+
+        BlockPos villageCorePos = villageManager.getVillageCorePos();
+
+        // Create spawn locations around village core
         for (int i = 0; i < SPAWN_LOCATIONS_COUNT; i++) {
-            BlockPos spawnPos = findRandomSpawnLocation(world, player.getBlockPos());
+            BlockPos spawnPos = findRandomSpawnLocation(world, villageCorePos);
             SpawnLocation location = new SpawnLocation(spawnPos, player.getUuid());
             spawnLocations.add(location);
             createSpawnMarker(world, spawnPos, true);
@@ -456,6 +558,128 @@ public class WaveManager {
         currentPhase = WavePhase.WAVE_1;
         phaseStartTick = world.getTime();
         startWave(world, List.of(player), 1, chaosLevel);
+    }
+
+    private void checkCoreAttacks(ServerWorld world, List<ServerPlayerEntity> players) {
+        VillageManager villageManager = ChaosMod.getVillageManager();
+
+        // Only check if core exists and game is not over
+        if (!villageManager.hasVillageCore() || villageManager.isGameOver()) {
+            return;
+        }
+
+        BlockPos corePos = villageManager.getVillageCorePos();
+        double attackRange = 3.0;
+
+        // Find all hostile mobs near the core (any alive mob in range)
+        List<MobEntity> nearbyMobs = world.getEntitiesByClass(
+            MobEntity.class,
+            new net.minecraft.util.math.Box(corePos).expand(attackRange),
+            mob -> mob.isAlive() && mob.getType().getSpawnGroup().isPeaceful() == false
+        );
+
+        // Process each mob attacking the core
+        for (MobEntity mob : nearbyMobs) {
+            // Calculate damage based on mob type
+            int damage = getMobCoreDamage(mob.getType());
+
+            // Apply damage to core
+            villageManager.damageCore(damage);
+
+            // Visual and sound effects
+            createCoreHitEffect(world, corePos);
+
+            // Broadcast damage message
+            for (ServerPlayerEntity player : players) {
+                player.sendMessage(
+                    Text.literal("§c§l[!] Core attacked by " + mob.getType().getName().getString() +
+                                 "! HP: §e" + villageManager.getCoreHP() + "/" + villageManager.getMaxCoreHP()),
+                    false
+                );
+            }
+
+            // Remove mob after attack
+            mob.discard();
+
+            // Check for game over
+            if (villageManager.isGameOver()) {
+                handleGameOver(world, players);
+                return;
+            }
+        }
+    }
+
+    private int getMobCoreDamage(EntityType<?> mobType) {
+        // Different mobs deal different damage to the core
+        if (mobType == EntityType.CREEPER) return 10;
+        if (mobType == EntityType.RAVAGER) return 8;
+        if (mobType == EntityType.WITHER_SKELETON) return 5;
+        if (mobType == EntityType.BLAZE) return 5;
+        if (mobType == EntityType.WITCH) return 4;
+        if (mobType == EntityType.ENDERMAN) return 3;
+        if (mobType == EntityType.SKELETON) return 2;
+        if (mobType == EntityType.ZOMBIE) return 2;
+        if (mobType == EntityType.SPIDER) return 1;
+        if (mobType == EntityType.CAVE_SPIDER) return 1;
+        return 2; // Default damage
+    }
+
+    private void createCoreHitEffect(ServerWorld world, BlockPos corePos) {
+        // Explosion particles
+        world.spawnParticles(
+            ParticleTypes.EXPLOSION,
+            corePos.getX() + 0.5,
+            corePos.getY() + 1.0,
+            corePos.getZ() + 0.5,
+            5, 0.5, 0.5, 0.5, 0.1
+        );
+
+        // Soul fire flames
+        world.spawnParticles(
+            ParticleTypes.SOUL_FIRE_FLAME,
+            corePos.getX() + 0.5,
+            corePos.getY() + 1.0,
+            corePos.getZ() + 0.5,
+            10, 0.3, 0.3, 0.3, 0.05
+        );
+
+        // Damage sound
+        SoundEffects.playCoreHitSound(world, corePos);
+    }
+
+    private void handleGameOver(ServerWorld world, List<ServerPlayerEntity> players) {
+        // Clear all wave state
+        currentPhase = WavePhase.INACTIVE;
+        spawnLocations.clear();
+        clearBossBars();
+
+        // Broadcast game over message
+        for (ServerPlayerEntity player : players) {
+            player.sendMessage(Text.literal(""), false);
+            player.sendMessage(Text.literal("§4§l═══════════════════════════════"), false);
+            player.sendMessage(Text.literal("§c§l         VILLAGE DESTROYED!"), false);
+            player.sendMessage(Text.literal("§e    The monsters have won..."), false);
+            player.sendMessage(Text.literal("§7  Use §e/chaos resetvillage §7to try again"), false);
+            player.sendMessage(Text.literal("§4§l═══════════════════════════════"), false);
+            player.sendMessage(Text.literal(""), false);
+        }
+
+        // Massive explosion effect at core
+        VillageManager villageManager = ChaosMod.getVillageManager();
+        BlockPos corePos = villageManager.getVillageCorePos();
+
+        world.spawnParticles(
+            ParticleTypes.EXPLOSION_EMITTER,
+            corePos.getX() + 0.5,
+            corePos.getY() + 1.0,
+            corePos.getZ() + 0.5,
+            3, 0, 0, 0, 0
+        );
+
+        // Game over sound
+        SoundEffects.playGameOverSound(world, corePos);
+
+        ChaosMod.LOGGER.info("GAME OVER - Village core destroyed at {}", corePos);
     }
 
     private static class SpawnLocation {

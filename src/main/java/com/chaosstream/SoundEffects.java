@@ -149,4 +149,22 @@ public class SoundEffects {
     public static void playAnvilDropSound(ServerWorld world, BlockPos pos) {
         world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.BLOCK_ANVIL_LAND, SoundCategory.BLOCKS, 1.5f, 0.8f, 0L);
     }
+
+    /**
+     * Play core hit sound (when village core takes damage)
+     */
+    public static void playCoreHitSound(ServerWorld world, BlockPos pos) {
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.BLOCK_ANVIL_LAND, SoundCategory.BLOCKS, 1.2f, 0.7f, 0L);
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.ENTITY_GENERIC_HURT, SoundCategory.HOSTILE, 0.8f, 0.5f, 0L);
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.BLOCK_GLASS_BREAK, SoundCategory.BLOCKS, 0.6f, 0.8f, 0L);
+    }
+
+    /**
+     * Play game over sound (when village core is destroyed)
+     */
+    public static void playGameOverSound(ServerWorld world, BlockPos pos) {
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.ENTITY_WITHER_DEATH, SoundCategory.HOSTILE, 2.0f, 0.5f, 0L);
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.BLOCKS, 2.0f, 0.6f, 0L);
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.ENTITY_ENDER_DRAGON_DEATH, SoundCategory.HOSTILE, 1.0f, 0.8f, 0L);
+    }
 }

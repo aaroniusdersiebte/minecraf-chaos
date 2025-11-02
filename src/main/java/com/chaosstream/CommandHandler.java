@@ -31,6 +31,14 @@ public class CommandHandler {
                 .executes(CommandHandler::forceWave))
             .then(CommandManager.literal("night")
                 .executes(CommandHandler::setNight))
+            .then(CommandManager.literal("setvillage")
+                .executes(CommandHandler::setVillage))
+            .then(CommandManager.literal("resetvillage")
+                .executes(CommandHandler::resetVillage))
+            .then(CommandManager.literal("corehp")
+                .executes(CommandHandler::getCoreHP))
+            .then(CommandManager.literal("cleanbars")
+                .executes(CommandHandler::cleanBossBars))
         );
     }
 
@@ -142,6 +150,93 @@ public class CommandHandler {
             return 1;
         } catch (Exception e) {
             context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int setVillage(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            VillageManager villageManager = ChaosMod.getVillageManager();
+
+            // Set village core at player's current position
+            villageManager.setVillageCore(player.getBlockPos());
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§a§lVillage core set at: §e" + player.getBlockPos().toShortString() +
+                    "\n§aCore HP: §e" + villageManager.getCoreHP() + "/" + villageManager.getMaxCoreHP()),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error setting village", e);
+            return 0;
+        }
+    }
+
+    private static int resetVillage(CommandContext<ServerCommandSource> context) {
+        VillageManager villageManager = ChaosMod.getVillageManager();
+        villageManager.resetVillage();
+
+        context.getSource().sendFeedback(
+            () -> Text.literal("§aVillage reset! Use '/chaos setvillage' to create a new village core."),
+            true
+        );
+
+        return 1;
+    }
+
+    private static int getCoreHP(CommandContext<ServerCommandSource> context) {
+        VillageManager villageManager = ChaosMod.getVillageManager();
+
+        if (!villageManager.hasVillageCore()) {
+            context.getSource().sendError(
+                Text.literal("§cNo village core set! Use '/chaos setvillage' to create one.")
+            );
+            return 0;
+        }
+
+        int hp = villageManager.getCoreHP();
+        int maxHP = villageManager.getMaxCoreHP();
+        boolean gameOver = villageManager.isGameOver();
+
+        String status = gameOver ? "§c§lDESTROYED" : "§a§lOK";
+
+        context.getSource().sendFeedback(
+            () -> Text.literal("§e=== Village Core Status ===\n" +
+                "§aLocation: §e" + villageManager.getVillageCorePos().toShortString() + "\n" +
+                "§aCore HP: §e" + hp + "/" + maxHP + "\n" +
+                "§aStatus: " + status),
+            false
+        );
+
+        return 1;
+    }
+
+    private static int cleanBossBars(CommandContext<ServerCommandSource> context) {
+        try {
+            // Remove all custom boss bars with chaosstream namespace
+            var server = context.getSource().getServer();
+            var manager = server.getBossBarManager();
+
+            // Remove core HP bar
+            var coreId = new net.minecraft.util.Identifier("chaosstream", "core_hp");
+            var coreBar = manager.get(coreId);
+            if (coreBar != null) {
+                manager.remove(coreBar);
+            }
+
+            context.getSource().sendFeedback(
+                () -> net.minecraft.text.Text.literal("§aAll Chaos Stream boss bars removed! They will be recreated automatically."),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(net.minecraft.text.Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error cleaning boss bars", e);
             return 0;
         }
     }

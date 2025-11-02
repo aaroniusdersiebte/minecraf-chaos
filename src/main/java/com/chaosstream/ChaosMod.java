@@ -12,6 +12,7 @@ public class ChaosMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private static ChaosManager chaosManager;
+    private static VillageManager villageManager;
     private static FileWatcher fileWatcher;
     private static SpawnHandler spawnHandler;
 
@@ -21,6 +22,7 @@ public class ChaosMod implements ModInitializer {
 
         // Initialize managers
         chaosManager = new ChaosManager();
+        villageManager = new VillageManager();
         spawnHandler = new SpawnHandler();
         fileWatcher = new FileWatcher(chaosManager, spawnHandler);
 
@@ -37,6 +39,7 @@ public class ChaosMod implements ModInitializer {
             LOGGER.info("Server stopping - Stopping file watcher...");
             fileWatcher.stop();
             chaosManager.save();
+            villageManager.save();
         });
 
         // Register tick events for monster spawning
@@ -49,6 +52,10 @@ public class ChaosMod implements ModInitializer {
 
     public static ChaosManager getChaosManager() {
         return chaosManager;
+    }
+
+    public static VillageManager getVillageManager() {
+        return villageManager;
     }
 
     public static SpawnHandler getSpawnHandler() {

@@ -22,6 +22,15 @@ public class SpawnUtils {
         if (type.create(world) instanceof MobEntity mob) {
             mob.refreshPositionAndAngles(pos, 0, 0);
             mob.initialize(world, world.getLocalDifficulty(pos), SpawnReason.NATURAL, null, null);
+
+            // Add Tower Defense AI if village core is set
+            VillageManager villageManager = ChaosMod.getVillageManager();
+            if (villageManager != null && villageManager.hasVillageCore()) {
+                BlockPos corePos = villageManager.getVillageCorePos();
+                mob.goalSelector.add(1, new AttackVillageCoreGoal(mob, corePos));
+                ChaosMod.LOGGER.debug("Added TD goal to {} targeting core at {}", type.getName().getString(), corePos);
+            }
+
             world.spawnEntity(mob);
         }
     }
