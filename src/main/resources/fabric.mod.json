@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "chaosstream",
+  "version": "${version}",
+  "name": "Chaos Stream Mod",
+  "description": "A streaming mod with chaos meter and viewer interaction",
+  "authors": [
+    "ChaosStreamer"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/chaosstream/icon.png",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.chaosstream.ChaosMod"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}

@@ -1,0 +1,150 @@
+================================================================================
+  CHAOS STREAM MOD - WINDOWS INSTALLATION GUIDE
+================================================================================
+
+VORAUSSETZUNGEN:
+✅ JDK 21 (hast du bereits installiert)
+✅ Fabric Server 1.20.1 mit Fabric API
+✅ Windows PowerShell oder CMD
+
+================================================================================
+SCHRITT 1: GRADLE WRAPPER EINRICHTEN
+================================================================================
+
+Führe aus:
+    setup-gradle.bat
+
+Dies lädt die benötigte gradle-wrapper.jar Datei herunter.
+
+ALTERNATIVE: Falls der Download fehlschlägt, lade manuell herunter:
+    URL: https://raw.githubusercontent.com/gradle/gradle/v8.8.0/gradle/wrapper/gradle-wrapper.jar
+    Speichere in: chaos-stream-mod\gradle\wrapper\gradle-wrapper.jar
+
+================================================================================
+SCHRITT 2: MOD BAUEN
+================================================================================
+
+Führe aus:
+    build.bat
+
+ODER direkt in PowerShell:
+    .\gradlew.bat build
+
+Der Build dauert beim ersten Mal 2-5 Minuten.
+
+Die fertige Mod findest du hier:
+    chaos-stream-mod\build\libs\chaos-stream-mod-1.0.0.jar
+
+================================================================================
+SCHRITT 3: MOD INSTALLIEREN
+================================================================================
+
+1. Kopiere die JAR-Datei:
+   Von:  chaos-stream-mod\build\libs\chaos-stream-mod-1.0.0.jar
+   Nach: server\mods\chaos-stream-mod-1.0.0.jar
+
+2. Stelle sicher, dass Fabric API bereits installiert ist:
+   server\mods\fabric-api-0.92.6+1.20.1.jar
+
+3. Starte den Server:
+   server\start.bat
+
+4. Prüfe die Logs auf:
+   [chaosstream] Chaos Stream Mod initialized!
+
+================================================================================
+SCHRITT 4: TESTEN
+================================================================================
+
+Öffne ein neues PowerShell-Fenster im Hauptordner:
+
+OPTION A - Interaktives Menu:
+    .\test-commands.ps1
+
+OPTION B - Schnelle Commands:
+    .\quick-test.bat
+
+Der Mod erstellt automatisch den Ordner:
+    server\chaos-commands\
+
+Hier werden die JSON-Befehle abgelegt und verarbeitet.
+
+================================================================================
+FEHLERBEHANDLUNG
+================================================================================
+
+FEHLER: "gradle-wrapper.jar nicht gefunden"
+LÖSUNG: Führe setup-gradle.bat aus
+
+FEHLER: "Java version nicht unterstützt"
+LÖSUNG: Stelle sicher, dass JDK 17 oder 21 installiert ist
+        java -version sollte "17" oder "21" anzeigen
+
+FEHLER: "Commands werden nicht verarbeitet"
+LÖSUNG:
+   1. Prüfe ob server\chaos-commands\ existiert
+   2. Prüfe Server-Logs auf Fehler
+   3. Stelle sicher, dass JSON-Syntax korrekt ist
+
+FEHLER: "Mobs spawnen nicht"
+LÖSUNG:
+   1. Chaos Level muss > 0 sein
+   2. Es muss Nacht sein im Spiel
+   3. Ein Spieler muss online sein
+
+================================================================================
+STREAMERBOT INTEGRATION
+================================================================================
+
+In Streamerbot, verwende "Execute Code" Action mit C#:
+
+    using System;
+    using System.IO;
+
+    public bool Execute()
+    {
+        var commandsDir = @"C:\Streaming\Code\Minecraft\server\chaos-commands\";
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+        var filename = commandsDir + "cmd_" + timestamp + ".json";
+
+        // Beispiel: 10 Chaos bei Follow
+        var json = "{\"command\":\"add_chaos\",\"amount\":10,\"source\":\"follow\"}";
+
+        File.WriteAllText(filename, json);
+        return true;
+    }
+
+WICHTIG: Passe den Pfad in commandsDir an deinen Server-Pfad an!
+
+================================================================================
+VERFÜGBARE COMMANDS
+================================================================================
+
+ADD CHAOS:
+{"command":"add_chaos","amount":10,"source":"follow"}
+
+SPAWN CREEPER:
+{"command":"spawn_creeper","player":"Spielername"}
+
+SPAWN LOOTBOX:
+{"command":"spawn_lootbox","player":"Spielername"}
+
+CREATE VILLAGER:
+{"command":"create_villager","name":"ViewerName","player":"Spielername"}
+
+RESET CHAOS:
+{"command":"reset_chaos"}
+
+GET STATUS:
+{"command":"get_chaos"}
+
+Hinweis: "player" ist optional - wird automatisch der erste Spieler gewählt
+
+================================================================================
+SUPPORT
+================================================================================
+
+Für weitere Hilfe, siehe README.md im chaos-stream-mod Ordner.
+
+Viel Erfolg mit deinem Stream! 🎮
+================================================================================
