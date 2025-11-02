@@ -15,6 +15,8 @@ public class ChaosMod implements ModInitializer {
     private static VillageManager villageManager;
     private static FileWatcher fileWatcher;
     private static SpawnHandler spawnHandler;
+    private static TowerManager towerManager;
+    private static TowerAttackLogic towerAttackLogic;
 
     @Override
     public void onInitialize() {
@@ -25,6 +27,12 @@ public class ChaosMod implements ModInitializer {
         villageManager = new VillageManager();
         spawnHandler = new SpawnHandler();
         fileWatcher = new FileWatcher(chaosManager, spawnHandler);
+        towerManager = new TowerManager();
+        towerAttackLogic = new TowerAttackLogic(towerManager);
+
+        // Register tower placement handler
+        TowerPlacementHandler placementHandler = new TowerPlacementHandler(towerManager, villageManager);
+        placementHandler.register();
 
         // Register commands
         CommandRegistrationCallback.EVENT.register(CommandHandler::register);
@@ -40,11 +48,17 @@ public class ChaosMod implements ModInitializer {
             fileWatcher.stop();
             chaosManager.save();
             villageManager.save();
+            towerManager.save();
         });
 
-        // Register tick events for monster spawning
+        // Register tick events for monster spawning and tower attacks
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             spawnHandler.onServerTick(server, chaosManager);
+
+            // Process tower attacks for all worlds
+            server.getWorlds().forEach(world -> {
+                towerAttackLogic.tick(world);
+            });
         });
 
         LOGGER.info("Chaos Stream Mod initialized!");
@@ -60,5 +74,9 @@ public class ChaosMod implements ModInitializer {
 
     public static SpawnHandler getSpawnHandler() {
         return spawnHandler;
+    }
+
+    public static TowerManager getTowerManager() {
+        return towerManager;
     }
 }

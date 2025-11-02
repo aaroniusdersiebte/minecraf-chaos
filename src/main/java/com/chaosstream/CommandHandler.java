@@ -2,12 +2,14 @@ package com.chaosstream;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 public class CommandHandler {
 
@@ -39,6 +41,15 @@ public class CommandHandler {
                 .executes(CommandHandler::getCoreHP))
             .then(CommandManager.literal("cleanbars")
                 .executes(CommandHandler::cleanBossBars))
+            .then(CommandManager.literal("givetower")
+                .then(CommandManager.argument("type", StringArgumentType.word())
+                    .executes(CommandHandler::giveTower)))
+            .then(CommandManager.literal("removetower")
+                .executes(CommandHandler::removeTower))
+            .then(CommandManager.literal("listtowers")
+                .executes(CommandHandler::listTowers))
+            .then(CommandManager.literal("cleartowers")
+                .executes(CommandHandler::clearTowers))
         );
     }
 
@@ -237,6 +248,154 @@ public class CommandHandler {
         } catch (Exception e) {
             context.getSource().sendError(net.minecraft.text.Text.literal("§cError: " + e.getMessage()));
             ChaosMod.LOGGER.error("Error cleaning boss bars", e);
+            return 0;
+        }
+    }
+
+    private static int giveTower(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            String typeStr = StringArgumentType.getString(context, "type");
+
+            // Parse tower type
+            TowerType type = TowerType.fromString(typeStr);
+            if (type == null) {
+                context.getSource().sendError(
+                    Text.literal("§cInvalid tower type! Valid types: archer, cannon")
+                );
+                return 0;
+            }
+
+            // Create and give tower item
+            var towerItem = TowerItemHelper.createTowerItem(type);
+            player.giveItemStack(towerItem);
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§a[TD] Given " + type.getDisplayName() + " Kit!")
+                    .append("\n§eCost: §f" + TowerItemHelper.getCostDescription(type))
+                    .append("\n§eRight-click on ground to place!"),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error giving tower", e);
+            return 0;
+        }
+    }
+
+    private static int removeTower(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            TowerManager towerManager = ChaosMod.getTowerManager();
+
+            var pos = player.getBlockPos();
+
+            // Check in 3x3 area around player
+            boolean removed = false;
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) {
+                    var checkPos = pos.add(x, 0, z);
+                    if (towerManager.removeTower(checkPos)) {
+                        // Remove blocks
+                        var world = player.getServerWorld();
+                        for (int y = 0; y <= 3; y++) {
+                            world.removeBlock(checkPos.up(y), false);
+                        }
+
+                        context.getSource().sendFeedback(
+                            () -> Text.literal("§a[TD] Tower removed at: " + checkPos.toShortString()),
+                            true
+                        );
+                        removed = true;
+                        break;
+                    }
+                }
+                if (removed) break;
+            }
+
+            if (!removed) {
+                context.getSource().sendError(
+                    Text.literal("§c[TD] No tower found nearby! Stand next to a tower.")
+                );
+                return 0;
+            }
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error removing tower", e);
+            return 0;
+        }
+    }
+
+    private static int listTowers(CommandContext<ServerCommandSource> context) {
+        TowerManager towerManager = ChaosMod.getTowerManager();
+        var towers = towerManager.getAllTowers();
+
+        if (towers.isEmpty()) {
+            context.getSource().sendFeedback(
+                () -> Text.literal("§e[TD] No towers placed yet!"),
+                false
+            );
+            return 1;
+        }
+
+        StringBuilder message = new StringBuilder("§e=== Tower Defense - Towers ===\n");
+        message.append("§aTotal Towers: §e").append(towers.size()).append("\n\n");
+
+        int archerCount = 0;
+        int cannonCount = 0;
+
+        for (Tower tower : towers) {
+            if (tower.getType() == TowerType.ARCHER) archerCount++;
+            else if (tower.getType() == TowerType.CANNON) cannonCount++;
+        }
+
+        message.append("§aArcher Towers: §e").append(archerCount).append("\n");
+        message.append("§aCannon Towers: §e").append(cannonCount).append("\n\n");
+
+        message.append("§7Use /chaos removetower to remove a tower");
+
+        String finalMessage = message.toString();
+        context.getSource().sendFeedback(
+            () -> Text.literal(finalMessage),
+            false
+        );
+
+        return 1;
+    }
+
+    private static int clearTowers(CommandContext<ServerCommandSource> context) {
+        try {
+            TowerManager towerManager = ChaosMod.getTowerManager();
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+
+            var towers = towerManager.getAllTowers();
+            int count = towers.size();
+
+            // Remove tower blocks from world
+            var world = player.getServerWorld();
+            for (Tower tower : towers) {
+                var pos = tower.getPosition();
+                for (int y = 0; y <= 3; y++) {
+                    world.removeBlock(pos.up(y), false);
+                }
+            }
+
+            // Clear all towers
+            towerManager.clearAllTowers();
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§a[TD] All towers cleared! (Removed " + count + " towers)"),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error clearing towers", e);
             return 0;
         }
     }
