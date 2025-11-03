@@ -80,6 +80,20 @@ public class SoundEffects {
     }
 
     /**
+     * Play totem use sound
+     */
+    public static void playTotemUse(ServerWorld world, BlockPos pos) {
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.ITEM_TOTEM_USE, SoundCategory.NEUTRAL, 0.7f, 1.3f, 0L);
+    }
+
+    /**
+     * Play bell sound
+     */
+    public static void playBell(ServerWorld world, BlockPos pos) {
+        world.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.BLOCK_BELL_USE, SoundCategory.BLOCKS, 0.8f, 1.0f, 0L);
+    }
+
+    /**
      * Play lightning strike sound
      */
     public static void playLightningSound(ServerWorld world, BlockPos pos) {

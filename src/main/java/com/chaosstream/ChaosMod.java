@@ -13,6 +13,7 @@ public class ChaosMod implements ModInitializer {
 
     private static ChaosManager chaosManager;
     private static VillageManager villageManager;
+    private static DefenderManager defenderManager;
     private static FileWatcher fileWatcher;
     private static SpawnHandler spawnHandler;
     private static TowerManager towerManager;
@@ -25,6 +26,7 @@ public class ChaosMod implements ModInitializer {
         // Initialize managers
         chaosManager = new ChaosManager();
         villageManager = new VillageManager();
+        defenderManager = DefenderManager.getInstance(); // Singleton
         spawnHandler = new SpawnHandler();
         fileWatcher = new FileWatcher(chaosManager, spawnHandler);
         towerManager = new TowerManager();
@@ -41,6 +43,13 @@ public class ChaosMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LOGGER.info("Server started - Starting file watcher...");
             fileWatcher.start();
+
+            // Respawn gespeicherte Defender
+            server.getWorlds().forEach(world -> {
+                if (villageManager.hasVillageCore()) {
+                    defenderManager.respawnAllDefenders(world, villageManager.getVillageCorePos());
+                }
+            });
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -49,6 +58,7 @@ public class ChaosMod implements ModInitializer {
             chaosManager.save();
             villageManager.save();
             towerManager.save();
+            defenderManager.shutdown(); // Speichert Defender-Daten
         });
 
         // Register tick events for monster spawning and tower attacks
@@ -70,6 +80,10 @@ public class ChaosMod implements ModInitializer {
 
     public static VillageManager getVillageManager() {
         return villageManager;
+    }
+
+    public static DefenderManager getDefenderManager() {
+        return defenderManager;
     }
 
     public static SpawnHandler getSpawnHandler() {

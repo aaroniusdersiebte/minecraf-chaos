@@ -157,6 +157,14 @@ public class FileWatcher {
                 ChaosMod.LOGGER.info("Queued villager spawn with name: {} for player: {}", villagerName, villagerPlayer);
                 break;
 
+            case "spawn_defender":
+                String defenderName = data.has("villager_name") ? data.get("villager_name").getAsString() : "Defender";
+                String defenderClass = data.has("class") ? data.get("class").getAsString() : "warrior";
+                String defenderPlayer = data.has("player") ? data.get("player").getAsString() : null;
+                spawnHandler.queueDefenderSpawn(defenderName, defenderClass, defenderPlayer);
+                ChaosMod.LOGGER.info("Queued defender spawn: {} (Class: {}) for player: {}", defenderName, defenderClass, defenderPlayer);
+                break;
+
             case "reset_chaos":
                 chaosManager.reset();
                 ChaosMod.LOGGER.info("Chaos level reset");

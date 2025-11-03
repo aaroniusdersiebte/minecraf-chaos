@@ -224,6 +224,152 @@ public class SpawnHandler {
         });
     }
 
+    /**
+     * Queue a defender villager spawn (new system with classes and leveling)
+     */
+    public void queueDefenderSpawn(String viewerName, String className, String playerName) {
+        spawnQueue.add(new SpawnCommand() {
+            @Override
+            public void execute(MinecraftServer server) {
+                ServerPlayerEntity player = getPlayer(server, playerName);
+                if (player == null) return;
+
+                ServerWorld world = player.getServerWorld();
+
+                // Parse Klasse
+                VillagerClass villagerClass = VillagerClass.fromString(className);
+
+                // Hole Village Core Position oder spawne beim Spieler
+                VillageManager villageManager = ChaosMod.getVillageManager();
+                BlockPos spawnPos;
+
+                if (villageManager.getVillageCorePos() != null) {
+                    // Spawne in Core-Nähe (5-10 Blöcke entfernt)
+                    BlockPos corePos = villageManager.getVillageCorePos();
+                    int offsetX = RANDOM.nextInt(10) - 5;
+                    int offsetZ = RANDOM.nextInt(10) - 5;
+                    spawnPos = findSafeSpawnPosition(world, corePos.add(offsetX, 0, offsetZ), 3);
+                } else {
+                    // Kein Core - spawne beim Spieler
+                    spawnPos = findSafeSpawnPosition(world, player.getBlockPos(), 3);
+                }
+
+                // Spawne Defender via DefenderManager
+                DefenderManager defenderManager = DefenderManager.getInstance();
+                DefenderVillager defender = defenderManager.spawnDefender(world, spawnPos, viewerName, villagerClass);
+
+                if (defender != null && defender.getLinkedEntity() != null) {
+                    // Füge AI Goals hinzu
+                    addDefenderAI(defender.getLinkedEntity(), defender, villageManager.getVillageCorePos());
+
+                    // Nachricht an Spieler
+                    String message = String.format("§b✦ %s hat sich als %s%s §bangeschlossen! ✦",
+                        viewerName,
+                        villagerClass.getColorCode(),
+                        villagerClass.getDisplayName());
+                    player.sendMessage(Text.literal(message), false);
+
+                    ChaosMod.LOGGER.info("Spawned defender '{}' (Class: {}) for viewer {} at {}",
+                        viewerName, villagerClass.getDisplayName(), viewerName, spawnPos);
+                } else {
+                    ChaosMod.LOGGER.error("Failed to spawn defender for viewer {}", viewerName);
+                }
+            }
+        });
+    }
+
+    /**
+     * Fügt klassen-spezifische AI Goals zu Defender-Villager hinzu
+     */
+    private void addDefenderAI(VillagerEntity villager, DefenderVillager defender, BlockPos corePos) {
+        VillagerClass vClass = defender.getVillagerClass();
+        double attackDamage = defender.getCurrentDamage();
+
+        // Klassen-spezifische Goals
+        switch (vClass) {
+            case WARRIOR:
+                // Warrior: Melee-Kämpfer mit DefendCoreGoal
+                if (corePos != null) {
+                    villager.goalSelector.add(1, new DefenderGoals.DefendCoreGoal(
+                        villager,
+                        corePos,
+                        40.0,           // Max Distanz vom Core
+                        attackDamage    // Damage basierend auf Level
+                    ));
+                }
+                break;
+
+            case ARCHER:
+                // Archer: Fernkämpfer mit RangedAttackGoal
+                if (corePos != null) {
+                    villager.goalSelector.add(1, new DefenderGoals.RangedAttackGoal(
+                        villager,
+                        corePos,
+                        attackDamage,   // Damage basierend auf Level
+                        20.0,           // Attack Range (20 Blöcke)
+                        15.0            // Preferred Distance (15 Blöcke)
+                    ));
+                }
+                break;
+
+            case HEALER:
+                // Heiler heilt Verbündete (Spieler haben Priorität!)
+                villager.goalSelector.add(1, new DefenderGoals.HealNearbyGoal(
+                    villager,
+                    corePos,   // Core-Position für Patrol
+                    10.0,  // 10 Blöcke Reichweite
+                    2,     // 2 HP pro Heal
+                    100    // 5 Sekunden Cooldown (100 Ticks)
+                ));
+                // Heiler kann sich auch verteidigen (geringere Priorität)
+                if (corePos != null) {
+                    villager.goalSelector.add(2, new DefenderGoals.DefendCoreGoal(
+                        villager,
+                        corePos,
+                        30.0,
+                        2.0  // Schwacher Angriff
+                    ));
+                }
+                break;
+
+            case BUILDER:
+                // Builder repariert Core
+                if (corePos != null) {
+                    villager.goalSelector.add(1, new DefenderGoals.RepairCoreGoal(
+                        villager,
+                        corePos,
+                        1,     // 1 HP pro Reparatur
+                        200    // 10 Sekunden Cooldown (200 Ticks)
+                    ));
+                    // Builder kann sich auch verteidigen (geringere Priorität)
+                    villager.goalSelector.add(2, new DefenderGoals.DefendCoreGoal(
+                        villager,
+                        corePos,
+                        30.0,
+                        attackDamage
+                    ));
+                }
+                break;
+
+            case TANK:
+                // Tank: Melee + Taunt
+                if (corePos != null) {
+                    villager.goalSelector.add(1, new DefenderGoals.DefendCoreGoal(
+                        villager,
+                        corePos,
+                        50.0,           // Größere Range für Tank
+                        attackDamage
+                    ));
+                }
+                // Tank taunted Mobs
+                villager.goalSelector.add(0, new DefenderGoals.TauntGoal(
+                    villager,
+                    15.0,  // 15 Blöcke Taunt-Reichweite
+                    60     // 3 Sekunden Taunt-Intervall (60 Ticks)
+                ));
+                break;
+        }
+    }
 
     /**
      * Queue TNT spawn

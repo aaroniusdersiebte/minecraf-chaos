@@ -10,6 +10,10 @@ base {
     archivesName = project.archives_base_name
 }
 
+loom {
+    accessWidenerPath = file("src/main/resources/chaosstream.accesswidener")
+}
+
 repositories {
     maven { url 'https://maven.fabricmc.net/' }
     mavenCentral()

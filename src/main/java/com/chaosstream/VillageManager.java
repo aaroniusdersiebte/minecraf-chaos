@@ -66,6 +66,22 @@ public class VillageManager {
     }
 
     /**
+     * Repair the core (für Builder-Villagers)
+     */
+    public void repairCore(int amount, java.util.UUID builderUUID) {
+        if (!hasVillageCore() || gameOver) return;
+
+        int oldHP = coreHP;
+        coreHP = Math.min(MAX_CORE_HP, coreHP + amount);
+
+        if (coreHP > oldHP) {
+            ChaosMod.LOGGER.debug("Village core repaired by {} HP (Builder: {}). HP: {}/{}",
+                amount, builderUUID, coreHP, MAX_CORE_HP);
+            save();
+        }
+    }
+
+    /**
      * Get current core HP
      */
     public int getCoreHP() {

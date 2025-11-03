@@ -110,7 +110,7 @@ public class TowerAttackLogic {
         BlockPos towerPos = tower.getPosition();
         Vec3d startPos = new Vec3d(
                 towerPos.getX() + 0.5,
-                towerPos.getY() + 4.0, // Fire from above tower (fixes self-shooting bug)
+                towerPos.getY() + 5.0, // Fire from one block above tower
                 towerPos.getZ() + 0.5
         );
 
@@ -168,7 +168,7 @@ public class TowerAttackLogic {
         BlockPos towerPos = tower.getPosition();
         Vec3d startPos = new Vec3d(
                 towerPos.getX() + 0.5,
-                towerPos.getY() + 4.0, // Fire from above tower
+                towerPos.getY() + 5.0, // Fire from one block above tower
                 towerPos.getZ() + 0.5
         );
 

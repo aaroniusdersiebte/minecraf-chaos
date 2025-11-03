@@ -165,6 +165,8 @@ public class WaveManager {
                     } else {
                         currentPhase = WavePhase.FINISHED;
                         clearBossBars();
+                        // Wave-Sequence beendet - XP vergeben
+                        DefenderManager.getInstance().onWaveCompleted(world);
                     }
                     phaseStartTick = currentTick;
                 }
@@ -186,6 +188,8 @@ public class WaveManager {
                     } else {
                         currentPhase = WavePhase.FINISHED;
                         clearBossBars();
+                        // Wave-Sequence beendet - XP vergeben
+                        DefenderManager.getInstance().onWaveCompleted(world);
                     }
                     phaseStartTick = currentTick;
                 }
@@ -205,6 +209,9 @@ public class WaveManager {
                     currentPhase = WavePhase.FINISHED;
                     clearBossBars();
                     phaseStartTick = currentTick;
+
+                    // Verteile XP an alle überlebenden Defender
+                    DefenderManager.getInstance().onWaveCompleted(world);
                 }
                 break;
         }
