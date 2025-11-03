@@ -35,6 +35,8 @@ public class DefenderGoals {
         private int hpUpdateTimer;
         private int patrolUpdateTimer;
         private BlockPos patrolTarget;
+        private boolean isRetreating;
+        private VillagerEntity targetHealer;
 
         private static final int PATH_UPDATE_INTERVAL = 10; // 0.5 Sekunden (optimiert)
         private static final double ATTACK_RANGE = 20.0;
@@ -43,6 +45,9 @@ public class DefenderGoals {
         private static final int HP_UPDATE_INTERVAL = 40; // 2 Sekunden
         private static final int PATROL_UPDATE_INTERVAL = 100; // 5 Sekunden
         private static final double PATROL_RADIUS = 10.0; // Blöcke um Core
+        private static final double HEALER_SEARCH_RANGE = 50.0; // Reichweite für Heiler-Suche
+        private static final float RETREAT_HP_THRESHOLD = 0.3f; // Retreat bei <30% HP
+        private static final float RETURN_HP_THRESHOLD = 0.5f; // Zurück bei >50% HP
 
         public DefendCoreGoal(VillagerEntity villager, BlockPos corePos, double maxDistanceFromCore, double attackDamage) {
             this.villager = villager;
@@ -69,6 +74,8 @@ public class DefenderGoals {
             this.hpUpdateTimer = 0;
             this.patrolUpdateTimer = 0;
             this.patrolTarget = null;
+            this.isRetreating = false;
+            this.targetHealer = null;
         }
 
         @Override
@@ -87,74 +94,154 @@ public class DefenderGoals {
                 }
             }
 
+            // Check ob Villager gestorben ist
+            if (villager.getHealth() <= 0 && villager.getWorld() instanceof ServerWorld) {
+                DefenderManager.getInstance().onDefenderDeath(
+                    villager.getUuid(),
+                    (ServerWorld) villager.getWorld()
+                );
+                return; // Stop Goal execution
+            }
+
+            // Check Retreat-Condition
+            float hpPercent = villager.getHealth() / villager.getMaxHealth();
+
+            if (hpPercent < RETREAT_HP_THRESHOLD && !isRetreating) {
+                // Start Retreat!
+                isRetreating = true;
+                currentTarget = null; // Stop Kampf
+                targetHealer = findNearestHealer();
+
+                // Spawn Retreat-Partikel (Schweiß)
+                if (villager.getWorld() instanceof ServerWorld) {
+                    ServerWorld world = (ServerWorld) villager.getWorld();
+                    world.spawnParticles(ParticleTypes.SPLASH,
+                        villager.getX(), villager.getY() + 1.0, villager.getZ(),
+                        15, 0.3, 0.5, 0.3, 0.0);
+                }
+            } else if (hpPercent > RETURN_HP_THRESHOLD && isRetreating) {
+                // HP regeneriert - zurück zum Kampf!
+                isRetreating = false;
+                targetHealer = null;
+            }
+
             if (this.updatePathTimer <= 0) {
                 this.updatePathTimer = PATH_UPDATE_INTERVAL;
 
                 double distanceToCore = villager.getPos().distanceTo(corePos.toCenterPos());
 
-                // Finde besten Target (priorisiert Mobs näher am Core)
-                HostileEntity bestTarget = findBestTarget();
+                if (isRetreating) {
+                    // RETREAT-MODE: Laufe zu Heiler oder Core
+                    if (targetHealer != null && targetHealer.isAlive()) {
+                        // Laufe zum Heiler
+                        villager.getNavigation().startMovingTo(targetHealer, 1.2);
+                        villager.getLookControl().lookAt(targetHealer, 30.0F, 30.0F);
 
-                if (bestTarget != null && bestTarget.isAlive()) {
-                    // Greife Mob an wenn in Reichweite und nicht zu weit vom Core
-                    double distanceToMob = villager.squaredDistanceTo(bestTarget);
-                    if (distanceToMob < ATTACK_RANGE * ATTACK_RANGE && distanceToCore < maxDistanceFromCore) {
-                        this.currentTarget = bestTarget;
-                        this.villager.getNavigation().startMovingTo(bestTarget, 1.0);
-                    } else if (distanceToCore > maxDistanceFromCore) {
-                        // Zu weit vom Core - kehre zurück
-                        this.currentTarget = null;
-                        this.villager.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 1.0);
+                        // Spawn Retreat-Partikel
+                        if (villager.getWorld() instanceof ServerWorld && villager.age % 20 == 0) {
+                            ServerWorld world = (ServerWorld) villager.getWorld();
+                            world.spawnParticles(ParticleTypes.SPLASH,
+                                villager.getX(), villager.getY() + 1.0, villager.getZ(),
+                                5, 0.2, 0.3, 0.2, 0.0);
+                        }
+                    } else {
+                        // Kein Heiler - laufe zum Core
+                        villager.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 1.2);
+                        villager.getLookControl().lookAt(corePos.toCenterPos());
                     }
                 } else {
-                    // Keine Bedrohung - Patrol-Mode
-                    this.currentTarget = null;
+                    // KAMPF-MODE: Normale Logik
+                    HostileEntity bestTarget = findBestTarget();
 
-                    if (this.patrolUpdateTimer <= 0) {
-                        this.patrolUpdateTimer = PATROL_UPDATE_INTERVAL;
+                    if (bestTarget != null && bestTarget.isAlive()) {
+                        double distanceToMob = villager.squaredDistanceTo(bestTarget);
+                        if (distanceToMob < ATTACK_RANGE * ATTACK_RANGE && distanceToCore < maxDistanceFromCore) {
+                            this.currentTarget = bestTarget;
+                            this.villager.getNavigation().startMovingTo(bestTarget, 1.0);
+                        } else if (distanceToCore > maxDistanceFromCore) {
+                            this.currentTarget = null;
+                            this.villager.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 1.0);
+                        }
+                    } else {
+                        // Keine Bedrohung - Patrol-Mode
+                        this.currentTarget = null;
 
-                        // Generiere zufällige Patrol-Position in PATROL_RADIUS um Core
-                        java.util.Random random = new java.util.Random();
-                        int offsetX = (int) ((random.nextDouble() - 0.5) * 2 * PATROL_RADIUS);
-                        int offsetZ = (int) ((random.nextDouble() - 0.5) * 2 * PATROL_RADIUS);
+                        if (this.patrolUpdateTimer <= 0) {
+                            this.patrolUpdateTimer = PATROL_UPDATE_INTERVAL;
 
-                        this.patrolTarget = corePos.add(offsetX, 0, offsetZ);
-                        this.villager.getNavigation().startMovingTo(
-                            patrolTarget.getX(),
-                            patrolTarget.getY(),
-                            patrolTarget.getZ(),
-                            0.7
-                        );
+                            java.util.Random random = new java.util.Random();
+                            int offsetX = (int) ((random.nextDouble() - 0.5) * 2 * PATROL_RADIUS);
+                            int offsetZ = (int) ((random.nextDouble() - 0.5) * 2 * PATROL_RADIUS);
+
+                            this.patrolTarget = corePos.add(offsetX, 0, offsetZ);
+                            this.villager.getNavigation().startMovingTo(
+                                patrolTarget.getX(),
+                                patrolTarget.getY(),
+                                patrolTarget.getZ(),
+                                0.7
+                            );
+                        }
                     }
                 }
             }
 
-            // Schaue zum Ziel und greife an wenn nah genug
-            if (this.currentTarget != null && this.currentTarget.isAlive()) {
+            // Schaue zum Ziel und greife an (NUR wenn NICHT retreating!)
+            if (!isRetreating && this.currentTarget != null && this.currentTarget.isAlive()) {
                 this.villager.getLookControl().lookAt(this.currentTarget, 30.0F, 30.0F);
 
-                // Melee Attack wenn nah genug
                 double distanceToTarget = villager.squaredDistanceTo(this.currentTarget);
                 if (distanceToTarget <= MELEE_REACH * MELEE_REACH && attackCooldown <= 0) {
                     performMeleeAttack(this.currentTarget);
                     attackCooldown = ATTACK_COOLDOWN_TICKS;
                 }
-            } else if (patrolTarget != null) {
-                // Schaue zur Patrol-Position
+            } else if (patrolTarget != null && !isRetreating) {
                 this.villager.getLookControl().lookAt(patrolTarget.toCenterPos());
             }
         }
 
         /**
          * Führt Melee-Angriff aus
+         * Inkl. 15% Crit-Chance mit 1.5x Damage
          */
         private void performMeleeAttack(HostileEntity target) {
+            // Kritischer Treffer-System (15% Chance)
+            java.util.Random random = new java.util.Random();
+            boolean isCrit = random.nextFloat() < 0.15f;
+            float finalDamage = isCrit ? (float)(attackDamage * 1.5) : (float)attackDamage;
+
             // Verursache Schaden
             boolean wasAlive = target.isAlive();
-            target.damage(villager.getDamageSources().mobAttack(villager), (float) attackDamage);
+            target.damage(villager.getDamageSources().mobAttack(villager), finalDamage);
 
             // Schwing-Animation (visueller Effekt)
             villager.swingHand(net.minecraft.util.Hand.MAIN_HAND);
+
+            // Kritische Treffer-Effekte
+            if (isCrit && villager.getWorld() instanceof ServerWorld) {
+                ServerWorld world = (ServerWorld) villager.getWorld();
+                BlockPos pos = target.getBlockPos();
+
+                // Crit-Partikel
+                world.spawnParticles(ParticleTypes.CRIT,
+                    target.getX(), target.getY() + 1.0, target.getZ(),
+                    15, 0.3, 0.5, 0.3, 0.0);
+                world.spawnParticles(ParticleTypes.ENCHANTED_HIT,
+                    target.getX(), target.getY() + 1.0, target.getZ(),
+                    10, 0.3, 0.5, 0.3, 0.0);
+
+                // Crit-Sound
+                world.playSound(null, pos.getX(), pos.getY(), pos.getZ(),
+                    net.minecraft.sound.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT,
+                    net.minecraft.sound.SoundCategory.NEUTRAL,
+                    0.7f, 1.0f);
+            }
+
+            // Trigger Damage-Event
+            DefenderManager.getInstance().onDamageDealt(
+                villager.getUuid(),
+                (int)finalDamage,
+                (ServerWorld) villager.getWorld()
+            );
 
             // Trigger XP-Event wenn Mob getötet wurde
             if (wasAlive && !target.isAlive() && villager.getWorld() instanceof ServerWorld) {
@@ -199,6 +286,35 @@ public class DefenderGoals {
 
             return bestTarget;
         }
+
+        /**
+         * Findet den nächsten Heiler-Defender für Retreat
+         * Sucht nach Healer-Klasse Defendern in HEALER_SEARCH_RANGE
+         */
+        private VillagerEntity findNearestHealer() {
+            List<VillagerEntity> villagers = this.villager.getWorld().getEntitiesByClass(
+                VillagerEntity.class,
+                this.villager.getBoundingBox().expand(HEALER_SEARCH_RANGE),
+                v -> v.isAlive() && v != this.villager
+            );
+
+            VillagerEntity closestHealer = null;
+            double closestDistance = Double.MAX_VALUE;
+
+            for (VillagerEntity potentialHealer : villagers) {
+                // Check ob dieser Villager ein Heiler-Defender ist
+                DefenderVillager defender = DefenderManager.getInstance().getDefenderByEntityUUID(potentialHealer.getUuid());
+                if (defender != null && defender.getVillagerClass() == VillagerClass.HEALER) {
+                    double distance = this.villager.squaredDistanceTo(potentialHealer);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestHealer = potentialHealer;
+                    }
+                }
+            }
+
+            return closestHealer;
+        }
     }
 
     /**
@@ -216,12 +332,17 @@ public class DefenderGoals {
         private int hpUpdateTimer;
         private int patrolUpdateTimer;
         private BlockPos patrolTarget;
+        private boolean isRetreating;
+        private VillagerEntity targetHealer;
 
         private static final int ATTACK_COOLDOWN_TICKS = 30; // 1.5 Sekunden
         private static final int PATH_UPDATE_INTERVAL = 10;
         private static final int HP_UPDATE_INTERVAL = 40; // 2 Sekunden
         private static final int PATROL_UPDATE_INTERVAL = 100; // 5 Sekunden
         private static final double PATROL_DISTANCE_FROM_CORE = 15.0; // Optimal für Fernkampf
+        private static final double HEALER_SEARCH_RANGE = 50.0;
+        private static final float RETREAT_HP_THRESHOLD = 0.3f;
+        private static final float RETURN_HP_THRESHOLD = 0.5f;
 
         public RangedAttackGoal(VillagerEntity archer, BlockPos corePos, double attackDamage, double attackRange, double preferredDistance) {
             this.archer = archer;
@@ -250,6 +371,8 @@ public class DefenderGoals {
             this.hpUpdateTimer = 0;
             this.patrolUpdateTimer = 0;
             this.patrolTarget = null;
+            this.isRetreating = false;
+            this.targetHealer = null;
         }
 
         @Override
@@ -268,64 +391,117 @@ public class DefenderGoals {
                 }
             }
 
+            // Check ob Archer gestorben ist
+            if (archer.getHealth() <= 0 && archer.getWorld() instanceof ServerWorld) {
+                DefenderManager.getInstance().onDefenderDeath(
+                    archer.getUuid(),
+                    (ServerWorld) archer.getWorld()
+                );
+                return; // Stop Goal execution
+            }
+
+            // Check Retreat-Condition
+            float hpPercent = archer.getHealth() / archer.getMaxHealth();
+
+            if (hpPercent < RETREAT_HP_THRESHOLD && !isRetreating) {
+                // Start Retreat!
+                isRetreating = true;
+                currentTarget = null; // Stop Kampf
+                targetHealer = findNearestHealer();
+
+                // Spawn Retreat-Partikel (Schweiß)
+                if (archer.getWorld() instanceof ServerWorld) {
+                    ServerWorld world = (ServerWorld) archer.getWorld();
+                    world.spawnParticles(ParticleTypes.SPLASH,
+                        archer.getX(), archer.getY() + 1.0, archer.getZ(),
+                        15, 0.3, 0.5, 0.3, 0.0);
+                }
+            } else if (hpPercent > RETURN_HP_THRESHOLD && isRetreating) {
+                // HP regeneriert - zurück zum Kampf!
+                isRetreating = false;
+                targetHealer = null;
+            }
+
             if (this.updatePathTimer <= 0) {
                 this.updatePathTimer = PATH_UPDATE_INTERVAL;
 
-                // Finde besten Target (priorisiert Mobs näher am Core)
-                HostileEntity bestTarget = findBestTarget();
+                if (isRetreating) {
+                    // RETREAT-MODE: Laufe zu Heiler oder Core
+                    if (targetHealer != null && targetHealer.isAlive()) {
+                        // Laufe zum Heiler
+                        archer.getNavigation().startMovingTo(targetHealer, 1.2);
+                        archer.getLookControl().lookAt(targetHealer, 30.0F, 30.0F);
 
-                if (bestTarget != null && bestTarget.isAlive()) {
-                    this.currentTarget = bestTarget;
-
-                    double distanceToTarget = archer.squaredDistanceTo(bestTarget);
-                    double preferredDistanceSq = preferredDistance * preferredDistance;
-
-                    // Halte Distanz: zu nah → zurückweichen, zu weit → näher ran
-                    if (distanceToTarget < (preferredDistance * 0.5) * (preferredDistance * 0.5)) {
-                        // Zu nah - weiche zurück
-                        double dx = archer.getX() - bestTarget.getX();
-                        double dz = archer.getZ() - bestTarget.getZ();
-                        double length = Math.sqrt(dx * dx + dz * dz);
-                        dx /= length;
-                        dz /= length;
-
-                        archer.getNavigation().startMovingTo(
-                            archer.getX() + dx * 10,
-                            archer.getY(),
-                            archer.getZ() + dz * 10,
-                            1.0
-                        );
-                    } else if (distanceToTarget > attackRange * attackRange) {
-                        // Zu weit - näher ran
-                        archer.getNavigation().startMovingTo(bestTarget, 0.9);
+                        // Spawn Retreat-Partikel
+                        if (archer.getWorld() instanceof ServerWorld && archer.age % 20 == 0) {
+                            ServerWorld world = (ServerWorld) archer.getWorld();
+                            world.spawnParticles(ParticleTypes.SPLASH,
+                                archer.getX(), archer.getY() + 1.0, archer.getZ(),
+                                5, 0.2, 0.3, 0.2, 0.0);
+                        }
+                    } else {
+                        // Kein Heiler - laufe zum Core
+                        archer.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 1.2);
+                        archer.getLookControl().lookAt(corePos.toCenterPos());
                     }
-                    // Navigation.stop() entfernt - Archer bleiben mobil
                 } else {
-                    // Keine Bedrohung - Patrol-Mode
-                    this.currentTarget = null;
+                    // KAMPF-MODE: Normale Logik
+                    // Finde besten Target (priorisiert Mobs näher am Core)
+                    HostileEntity bestTarget = findBestTarget();
 
-                    if (this.patrolUpdateTimer <= 0) {
-                        this.patrolUpdateTimer = PATROL_UPDATE_INTERVAL;
+                    if (bestTarget != null && bestTarget.isAlive()) {
+                        this.currentTarget = bestTarget;
 
-                        // Archer patrouillieren in PATROL_DISTANCE_FROM_CORE Distanz zum Core
-                        java.util.Random random = new java.util.Random();
-                        double angle = random.nextDouble() * Math.PI * 2;
-                        int offsetX = (int) (Math.cos(angle) * PATROL_DISTANCE_FROM_CORE);
-                        int offsetZ = (int) (Math.sin(angle) * PATROL_DISTANCE_FROM_CORE);
+                        double distanceToTarget = archer.squaredDistanceTo(bestTarget);
+                        double preferredDistanceSq = preferredDistance * preferredDistance;
 
-                        this.patrolTarget = corePos.add(offsetX, 0, offsetZ);
-                        archer.getNavigation().startMovingTo(
-                            patrolTarget.getX(),
-                            patrolTarget.getY(),
-                            patrolTarget.getZ(),
-                            0.7
-                        );
+                        // Halte Distanz: zu nah → zurückweichen, zu weit → näher ran
+                        if (distanceToTarget < (preferredDistance * 0.5) * (preferredDistance * 0.5)) {
+                            // Zu nah - weiche zurück
+                            double dx = archer.getX() - bestTarget.getX();
+                            double dz = archer.getZ() - bestTarget.getZ();
+                            double length = Math.sqrt(dx * dx + dz * dz);
+                            dx /= length;
+                            dz /= length;
+
+                            archer.getNavigation().startMovingTo(
+                                archer.getX() + dx * 10,
+                                archer.getY(),
+                                archer.getZ() + dz * 10,
+                                1.0
+                            );
+                        } else if (distanceToTarget > attackRange * attackRange) {
+                            // Zu weit - näher ran
+                            archer.getNavigation().startMovingTo(bestTarget, 0.9);
+                        }
+                        // Navigation.stop() entfernt - Archer bleiben mobil
+                    } else {
+                        // Keine Bedrohung - Patrol-Mode
+                        this.currentTarget = null;
+
+                        if (this.patrolUpdateTimer <= 0) {
+                            this.patrolUpdateTimer = PATROL_UPDATE_INTERVAL;
+
+                            // Archer patrouillieren in PATROL_DISTANCE_FROM_CORE Distanz zum Core
+                            java.util.Random random = new java.util.Random();
+                            double angle = random.nextDouble() * Math.PI * 2;
+                            int offsetX = (int) (Math.cos(angle) * PATROL_DISTANCE_FROM_CORE);
+                            int offsetZ = (int) (Math.sin(angle) * PATROL_DISTANCE_FROM_CORE);
+
+                            this.patrolTarget = corePos.add(offsetX, 0, offsetZ);
+                            archer.getNavigation().startMovingTo(
+                                patrolTarget.getX(),
+                                patrolTarget.getY(),
+                                patrolTarget.getZ(),
+                                0.7
+                            );
+                        }
                     }
                 }
             }
 
-            // Schieße Pfeil wenn Ziel in Reichweite
-            if (this.currentTarget != null && this.currentTarget.isAlive()) {
+            // Schieße Pfeil wenn Ziel in Reichweite (NUR wenn NICHT retreating!)
+            if (!isRetreating && this.currentTarget != null && this.currentTarget.isAlive()) {
                 archer.getLookControl().lookAt(this.currentTarget, 30.0F, 30.0F);
 
                 double distanceToTarget = Math.sqrt(archer.squaredDistanceTo(this.currentTarget));
@@ -333,7 +509,7 @@ public class DefenderGoals {
                     shootArrow(this.currentTarget);
                     attackCooldown = ATTACK_COOLDOWN_TICKS;
                 }
-            } else if (patrolTarget != null) {
+            } else if (patrolTarget != null && !isRetreating) {
                 // Schaue zur Patrol-Position
                 archer.getLookControl().lookAt(patrolTarget.toCenterPos());
             }
@@ -341,10 +517,16 @@ public class DefenderGoals {
 
         /**
          * Schießt einen Pfeil auf das Ziel
+         * Inkl. 15% Crit-Chance mit 1.5x Damage
          */
         private void shootArrow(HostileEntity target) {
             if (!(archer.getWorld() instanceof ServerWorld)) return;
             ServerWorld world = (ServerWorld) archer.getWorld();
+
+            // Kritischer Treffer-System (15% Chance)
+            java.util.Random random = new java.util.Random();
+            boolean isCrit = random.nextFloat() < 0.15f;
+            double finalDamage = isCrit ? attackDamage * 1.5 : attackDamage;
 
             // Erstelle Pfeil-Entity
             net.minecraft.entity.projectile.ArrowEntity arrow = new net.minecraft.entity.projectile.ArrowEntity(
@@ -361,11 +543,16 @@ public class DefenderGoals {
             // Setze Velocity (Pfeilflug)
             arrow.setVelocity(dx, dy + distance * 0.15, dz, 1.6F, 1.0F);
 
-            // Setze Schaden
-            arrow.setDamage(attackDamage);
+            // Setze Schaden (inkl. Crit)
+            arrow.setDamage(finalDamage);
 
             // Setze Owner für XP-Tracking
             arrow.setOwner(archer);
+
+            // Crit-Marker via NBT (für visuelle Effekte bei Impact)
+            if (isCrit) {
+                arrow.setCritical(true);
+            }
 
             // Spawne Pfeil
             world.spawnEntity(arrow);
@@ -373,7 +560,21 @@ public class DefenderGoals {
             // Schwing-Animation
             archer.swingHand(net.minecraft.util.Hand.MAIN_HAND);
 
-            // Sound-Effekt
+            // Kritische Treffer-Effekte beim Schuss
+            if (isCrit) {
+                // Crit-Partikel am Archer
+                world.spawnParticles(ParticleTypes.CRIT,
+                    archer.getX(), archer.getY() + 1.5, archer.getZ(),
+                    10, 0.3, 0.3, 0.3, 0.0);
+
+                // Crit-Sound (höher pitched)
+                world.playSound(null, archer.getX(), archer.getY(), archer.getZ(),
+                    net.minecraft.sound.SoundEvents.ENTITY_PLAYER_ATTACK_CRIT,
+                    net.minecraft.sound.SoundCategory.NEUTRAL,
+                    0.5f, 1.5f);
+            }
+
+            // Sound-Effekt (normaler Pfeil-Schuss)
             world.playSound(
                 null,
                 archer.getX(),
@@ -383,6 +584,13 @@ public class DefenderGoals {
                 net.minecraft.sound.SoundCategory.NEUTRAL,
                 1.0f,
                 1.0f / (world.getRandom().nextFloat() * 0.4f + 1.2f)
+            );
+
+            // Trigger Damage-Event (Annahme: Pfeil trifft)
+            DefenderManager.getInstance().onDamageDealt(
+                archer.getUuid(),
+                (int)finalDamage,
+                world
             );
         }
 
@@ -422,6 +630,35 @@ public class DefenderGoals {
             }
 
             return bestTarget;
+        }
+
+        /**
+         * Findet den nächsten Heiler-Defender für Retreat
+         * Sucht nach Healer-Klasse Defendern in HEALER_SEARCH_RANGE
+         */
+        private VillagerEntity findNearestHealer() {
+            List<VillagerEntity> villagers = this.archer.getWorld().getEntitiesByClass(
+                VillagerEntity.class,
+                this.archer.getBoundingBox().expand(HEALER_SEARCH_RANGE),
+                v -> v.isAlive() && v != this.archer
+            );
+
+            VillagerEntity closestHealer = null;
+            double closestDistance = Double.MAX_VALUE;
+
+            for (VillagerEntity potentialHealer : villagers) {
+                // Check ob dieser Villager ein Heiler-Defender ist
+                DefenderVillager defender = DefenderManager.getInstance().getDefenderByEntityUUID(potentialHealer.getUuid());
+                if (defender != null && defender.getVillagerClass() == VillagerClass.HEALER) {
+                    double distance = this.archer.squaredDistanceTo(potentialHealer);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestHealer = potentialHealer;
+                    }
+                }
+            }
+
+            return closestHealer;
         }
     }
 
@@ -479,6 +716,15 @@ public class DefenderGoals {
                 if (defender != null) {
                     DefenderManager.getInstance().updateHealthDisplay(healer, defender);
                 }
+            }
+
+            // Check ob Healer gestorben ist
+            if (healer.getHealth() <= 0 && healer.getWorld() instanceof ServerWorld) {
+                DefenderManager.getInstance().onDefenderDeath(
+                    healer.getUuid(),
+                    (ServerWorld) healer.getWorld()
+                );
+                return; // Stop Goal execution
             }
 
             if (cooldownTimer <= 0) {
@@ -638,6 +884,15 @@ public class DefenderGoals {
                 }
             }
 
+            // Check ob Builder gestorben ist
+            if (builder.getHealth() <= 0 && builder.getWorld() instanceof ServerWorld) {
+                DefenderManager.getInstance().onDefenderDeath(
+                    builder.getUuid(),
+                    (ServerWorld) builder.getWorld()
+                );
+                return; // Stop Goal execution
+            }
+
             double distanceToCore = builder.getPos().distanceTo(corePos.toCenterPos());
 
             VillageManager villageManager = ChaosMod.getVillageManager();
@@ -745,6 +1000,15 @@ public class DefenderGoals {
 
         @Override
         public void tick() {
+            // Check ob Tank gestorben ist
+            if (tank.getHealth() <= 0 && tank.getWorld() instanceof ServerWorld) {
+                DefenderManager.getInstance().onDefenderDeath(
+                    tank.getUuid(),
+                    (ServerWorld) tank.getWorld()
+                );
+                return; // Stop Goal execution
+            }
+
             tauntTimer--;
 
             if (tauntTimer <= 0) {

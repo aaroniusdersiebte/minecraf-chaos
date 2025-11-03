@@ -1,6 +1,7 @@
 package com.chaosstream;
 
 import com.google.gson.*;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.attribute.EntityAttributes;
@@ -12,6 +13,7 @@ import net.minecraft.item.Items;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
@@ -168,8 +170,8 @@ public class DefenderManager {
     }
 
     /**
-     * Aktualisiert die HP-Anzeige im Namen des Villagers
-     * Format: [❤ 35/40] Krieger - ViewerName
+     * Aktualisiert die HP/Damage-Anzeige im Namen des Villagers
+     * Format: [❤ 35] [💥 450] Krieger - ViewerName
      * Farbe basierend auf HP%: Grün >70%, Gelb 40-70%, Rot <40%
      */
     public void updateHealthDisplay(VillagerEntity villager, DefenderVillager defender) {
@@ -194,9 +196,13 @@ public class DefenderManager {
         String className = vClass.getDisplayName();
         String classColor = vClass.getColorCode();
 
-        // Formatierter Name: [❤ HP] Klasse - Name
-        String formattedName = String.format("%s[❤ %.0f/%.0f] %s%s §7- §f%s",
-            hpColor, currentHP, maxHP,
+        // Damage-Counter
+        int totalDamage = defender.getDamageDealt();
+
+        // Formatierter Name: [❤ HP] [💥 Damage] Klasse - Name
+        String formattedName = String.format("%s[❤ %.0f] §e[💥 %d] %s%s §7- §f%s",
+            hpColor, currentHP,
+            totalDamage,
             classColor, className,
             defender.getViewerName());
 
@@ -371,22 +377,70 @@ public class DefenderManager {
     }
 
     /**
-     * Event: Villager ist gestorben
+     * Event: Damage wurde verursacht
+     * Tracked Total Damage für Statistiken
      */
-    public void onDefenderDeath(UUID villagerUUID) {
+    public void onDamageDealt(UUID villagerUUID, int damage, ServerWorld world) {
         DefenderVillager defender = entityToDefender.get(villagerUUID);
         if (defender == null) return;
 
-        LOGGER.info("Defender {} ({}) ist gestorben. (Kills: {}, Waves: {})",
-            defender.getViewerName(),
-            defender.getVillagerClass().getDisplayName(),
-            defender.getKills(),
-            defender.getWavesCompleted());
+        defender.addDamage(damage);
 
-        // Später: Permadeath-System oder Respawn
-        // Momentan: Defender bleibt in Liste für Respawn bei Server-Neustart
-        defender.setLinkedEntity(null);
+        // HP-Display updaten (um neuen Damage-Counter zu zeigen)
+        if (defender.getLinkedEntity() != null && defender.getLinkedEntity().isAlive()) {
+            updateHealthDisplay(defender.getLinkedEntity(), defender);
+        }
+
+        // Speichere alle 50 Damage (um nicht zu oft zu speichern)
+        if (defender.getDamageDealt() % 50 == 0) {
+            saveDefenders();
+        }
+    }
+
+    /**
+     * Event: Villager ist gestorben
+     * Permadeath-System: Defender wird permanent entfernt
+     */
+    public void onDefenderDeath(UUID villagerUUID, ServerWorld world) {
+        DefenderVillager defender = entityToDefender.get(villagerUUID);
+        if (defender == null) return;
+
+        VillagerEntity entity = defender.getLinkedEntity();
+        if (entity == null) return;
+        BlockPos deathPos = entity.getBlockPos();
+
+        // 1. Broadcast-Nachricht
+        String message = String.format("§c💀 Defender %s ist gefallen! 💀",
+            defender.getViewerName());
+        for (ServerPlayerEntity player : world.getPlayers()) {
+            player.sendMessage(Text.literal(message), false);
+        }
+
+        // 2. Spawne Grab-Marker (Skeleton Skull)
+        world.setBlockState(deathPos, Blocks.SKELETON_SKULL.getDefaultState());
+
+        // 3. Death-Partikel
+        world.spawnParticles(ParticleTypes.SOUL,
+            deathPos.getX() + 0.5, deathPos.getY() + 1.0, deathPos.getZ() + 0.5,
+            30, 0.5, 0.5, 0.5, 0.1);
+        world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME,
+            deathPos.getX() + 0.5, deathPos.getY() + 1.0, deathPos.getZ() + 0.5,
+            20, 0.5, 0.5, 0.5, 0.1);
+
+        // 4. Death-Sound
+        world.playSound(null, deathPos.getX(), deathPos.getY(), deathPos.getZ(),
+            SoundEvents.ENTITY_WITHER_DEATH,
+            SoundCategory.NEUTRAL, 1.0f, 0.5f);
+
+        // 5. Entferne aus Maps (PERMANENTER TOD!)
+        defenders.remove(defender.getUuid());
+        entityToDefender.remove(villagerUUID);
+
+        // 6. Speichere (ohne toten Defender)
         saveDefenders();
+
+        LOGGER.info("Defender {} ist permanent gestorben (Kills: {}, Damage: {})",
+            defender.getViewerName(), defender.getKills(), defender.getDamageDealt());
     }
 
     /**
