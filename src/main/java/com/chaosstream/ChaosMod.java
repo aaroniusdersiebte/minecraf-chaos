@@ -18,6 +18,8 @@ public class ChaosMod implements ModInitializer {
     private static SpawnHandler spawnHandler;
     private static TowerManager towerManager;
     private static TowerAttackLogic towerAttackLogic;
+    private static StatsManager statsManager;
+    private static ScoreboardManager scoreboardManager;
 
     @Override
     public void onInitialize() {
@@ -31,6 +33,8 @@ public class ChaosMod implements ModInitializer {
         fileWatcher = new FileWatcher(chaosManager, spawnHandler);
         towerManager = new TowerManager();
         towerAttackLogic = new TowerAttackLogic(towerManager);
+        statsManager = StatsManager.getInstance(); // Singleton
+        scoreboardManager = new ScoreboardManager();
 
         // Register tower placement handler
         TowerPlacementHandler placementHandler = new TowerPlacementHandler(towerManager, villageManager);
@@ -61,7 +65,7 @@ public class ChaosMod implements ModInitializer {
             defenderManager.shutdown(); // Speichert Defender-Daten
         });
 
-        // Register tick events for monster spawning and tower attacks
+        // Register tick events for monster spawning, tower attacks, scoreboard, and stats
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             spawnHandler.onServerTick(server, chaosManager);
 
@@ -69,6 +73,12 @@ public class ChaosMod implements ModInitializer {
             server.getWorlds().forEach(world -> {
                 towerAttackLogic.tick(world);
             });
+
+            // Update scoreboard
+            scoreboardManager.tick(server);
+
+            // Export stats for OBS
+            statsManager.exportStatsToJson(server);
         });
 
         LOGGER.info("Chaos Stream Mod initialized!");
@@ -92,5 +102,13 @@ public class ChaosMod implements ModInitializer {
 
     public static TowerManager getTowerManager() {
         return towerManager;
+    }
+
+    public static StatsManager getStatsManager() {
+        return statsManager;
+    }
+
+    public static ScoreboardManager getScoreboardManager() {
+        return scoreboardManager;
     }
 }

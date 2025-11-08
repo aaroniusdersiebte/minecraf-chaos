@@ -27,6 +27,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Manager für alle Defender-Villagers
@@ -501,10 +502,28 @@ public class DefenderManager {
     }
 
     /**
-     * Gibt alle aktiven Defender zurück
+     * Gibt alle aktiven Defender zurück (als List für Sorting)
      */
-    public Collection<DefenderVillager> getAllDefenders() {
-        return defenders.values();
+    public List<DefenderVillager> getAllDefenders() {
+        return new ArrayList<>(defenders.values());
+    }
+
+    /**
+     * Gibt Anzahl lebender Defender zurück
+     */
+    public int getActiveDefenderCount() {
+        return (int) defenders.values().stream()
+            .filter(d -> d.getLinkedEntity() != null && d.getLinkedEntity().isAlive())
+            .count();
+    }
+
+    /**
+     * Gibt alle Defender einer bestimmten Klasse zurück
+     */
+    public List<DefenderVillager> getDefendersByClass(VillagerClass vClass) {
+        return defenders.values().stream()
+            .filter(d -> d.getVillagerClass() == vClass)
+            .collect(Collectors.toList());
     }
 
     /**
@@ -610,17 +629,32 @@ public class DefenderManager {
         }
 
         try (FileReader reader = new FileReader(dataFile)) {
-            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+            JsonElement element = JsonParser.parseReader(reader);
+
+            // Check if file is empty or invalid
+            if (element == null || !element.isJsonObject()) {
+                LOGGER.warn("defender-data.json ist leer oder ungültig - starte mit leerem Defender-Pool");
+                return;
+            }
+
+            JsonObject root = element.getAsJsonObject();
             JsonArray defenderArray = root.getAsJsonArray("defenders");
 
-            for (JsonElement element : defenderArray) {
-                DefenderVillager defender = new DefenderVillager(element.getAsJsonObject());
+            if (defenderArray == null) {
+                LOGGER.warn("Kein 'defenders' Array in defender-data.json gefunden");
+                return;
+            }
+
+            for (JsonElement arrayElement : defenderArray) {
+                DefenderVillager defender = new DefenderVillager(arrayElement.getAsJsonObject());
                 defenders.put(defender.getUuid(), defender);
             }
 
             LOGGER.info("{} Defender aus defender-data.json geladen", defenders.size());
         } catch (IOException e) {
             LOGGER.error("Fehler beim Laden von defender-data.json", e);
+        } catch (Exception e) {
+            LOGGER.error("Fehler beim Parsen von defender-data.json - Datei ist möglicherweise korrupt", e);
         }
     }
 

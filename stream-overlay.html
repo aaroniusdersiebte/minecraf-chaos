@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Stream Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: transparent;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .overlay-container {
+            padding: 20px;
+            max-width: 400px;
+        }
+
+        /* Main Stats Panel */
+        .stats-panel {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.85), rgba(20, 20, 40, 0.85));
+            border: 2px solid rgba(255, 215, 0, 0.6);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        .stats-header {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            font-size: 16px;
+            color: #aaa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            transition: color 0.3s ease;
+        }
+
+        .stat-icon {
+            font-size: 20px;
+        }
+
+        /* Chaos Meter mit Farben */
+        .chaos-value {
+            font-size: 22px !important;
+            font-weight: bold;
+            text-shadow: 0 0 10px currentColor;
+        }
+
+        .chaos-low { color: #4CAF50; } /* Grün */
+        .chaos-medium { color: #FFC107; } /* Gelb */
+        .chaos-high { color: #FF9800; } /* Orange */
+        .chaos-extreme { color: #F44336; } /* Rot */
+        .chaos-critical { color: #9C27B0; } /* Lila */
+
+        /* Progress Bar für Core HP */
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: rgba(50, 50, 50, 0.8);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.5s ease, background 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+
+        .hp-critical { background: linear-gradient(90deg, #F44336, #E91E63) !important; }
+        .hp-warning { background: linear-gradient(90deg, #FF9800, #FFC107) !important; }
+        .hp-good { background: linear-gradient(90deg, #4CAF50, #8BC34A) !important; }
+
+        /* Leaderboard Panel */
+        .leaderboard-panel {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.85), rgba(40, 20, 60, 0.85));
+            border: 2px solid rgba(138, 43, 226, 0.6);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        .leaderboard-header {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: #BA68C8;
+            text-shadow: 0 0 10px rgba(186, 104, 200, 0.8);
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+
+        .leaderboard-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            transition: opacity 0.3s ease;
+        }
+
+        /* Nur neue Items animieren */
+        .leaderboard-item.new {
+            animation: slideIn 0.5s ease;
+        }
+
+        .leaderboard-item:last-child {
+            border-bottom: none;
+        }
+
+        .rank {
+            font-size: 24px;
+            margin-right: 12px;
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .defender-info {
+            flex: 1;
+        }
+
+        .defender-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            transition: color 0.3s ease;
+        }
+
+        .defender-class {
+            font-size: 12px;
+            color: #aaa;
+            transition: color 0.3s ease;
+        }
+
+        .defender-stats {
+            text-align: right;
+        }
+
+        .damage-stat {
+            font-size: 16px;
+            font-weight: bold;
+            color: #FFD700;
+            transition: color 0.3s ease;
+        }
+
+        .kills-stat {
+            font-size: 12px;
+            color: #888;
+            transition: color 0.3s ease;
+        }
+
+        /* Animations */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        /* Responsive für verschiedene OBS-Größen */
+        @media (max-width: 400px) {
+            .stats-panel, .leaderboard-panel {
+                padding: 15px;
+            }
+
+            .stats-header {
+                font-size: 20px;
+            }
+
+            .stat-label, .stat-value {
+                font-size: 14px;
+            }
+        }
+
+        /* Connection Status */
+        .connection-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
+        }
+
+        .connection-status.disconnected {
+            background: #F44336;
+            box-shadow: 0 0 10px #F44336;
+        }
+
+        /* Class Colors */
+        .class-warrior { color: #FF5722; }
+        .class-archer { color: #4CAF50; }
+        .class-healer { color: #E91E63; }
+        .class-builder { color: #FFC107; }
+        .class-tank { color: #2196F3; }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus"></div>
+
+    <div class="overlay-container">
+        <!-- Main Stats Panel -->
+        <div class="stats-panel">
+            <div class="stats-header">⚔ CHAOS STREAM ⚔</div>
+
+            <div class="stat-row">
+                <div class="stat-label">
+                    <span class="stat-icon">⚡</span>
+                    Chaos Level
+                </div>
+                <div class="stat-value chaos-value" id="chaosLevel">0</div>
+            </div>
+
+            <div class="stat-row">
+                <div class="stat-label">
+                    <span class="stat-icon">📊</span>
+                    Multiplier
+                </div>
+                <div class="stat-value" id="chaosMultiplier">1.0x</div>
+            </div>
+
+            <div class="stat-row">
+                <div class="stat-label">
+                    <span class="stat-icon">⚔</span>
+                    Defender
+                </div>
+                <div class="stat-value" id="defenderCount">0</div>
+            </div>
+
+            <div class="stat-row">
+                <div class="stat-label">
+                    <span class="stat-icon">❤</span>
+                    Village Core HP
+                </div>
+                <div class="stat-value" id="coreHP">0/0</div>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill hp-good" id="coreHPBar">100%</div>
+            </div>
+
+            <div class="stat-row">
+                <div class="stat-label">
+                    <span class="stat-icon">🌊</span>
+                    Waves Completed
+                </div>
+                <div class="stat-value" id="wavesCompleted">0</div>
+            </div>
+        </div>
+
+        <!-- Leaderboard Panel -->
+        <div class="leaderboard-panel">
+            <div class="leaderboard-header">⭐ TOP 5 DEFENDERS ⭐</div>
+            <div id="leaderboard">
+                <!-- Dynamisch gefüllt via JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Konfiguration
+        const CONFIG = {
+            statsFile: 'stream-stats.json', // Pfad zur JSON-Datei (im Server-Root)
+            updateInterval: 1000, // Update alle 1 Sekunde
+            animationEnabled: true
+        };
+
+        let lastUpdate = 0;
+        let connectionOK = false;
+
+        // Haupt-Update-Funktion (mit XMLHttpRequest für file:// Support)
+        function updateOverlay() {
+            const xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200 || xhr.status === 0) { // 0 = file:// Protokoll
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+
+                            // Connection Status
+                            connectionOK = true;
+                            document.getElementById('connectionStatus').classList.remove('disconnected');
+
+                            // Update Stats
+                            updateChaosLevel(data.chaos.current);
+                            updateMultiplier(data.chaos.multiplier);
+                            updateDefenderCount(data.defenders.alive);
+                            updateCoreHP(data.village_core.health, data.village_core.max_health, data.village_core.health_percentage);
+                            updateWaves(data.wave.total_completed);
+                            updateLeaderboard(data.top_defenders);
+
+                            lastUpdate = Date.now();
+                        } catch (error) {
+                            console.error('Error parsing JSON:', error);
+                            connectionOK = false;
+                            document.getElementById('connectionStatus').classList.add('disconnected');
+                        }
+                    } else {
+                        console.error('Error loading stats:', xhr.status, xhr.statusText);
+                        connectionOK = false;
+                        document.getElementById('connectionStatus').classList.add('disconnected');
+                    }
+                }
+            };
+
+            xhr.onerror = function() {
+                console.error('Network error while loading stats');
+                connectionOK = false;
+                document.getElementById('connectionStatus').classList.add('disconnected');
+            };
+
+            // Cache-Busting mit Timestamp
+            xhr.open('GET', CONFIG.statsFile + '?t=' + Date.now(), true);
+            xhr.send();
+        }
+
+        // Update Chaos Level mit Farben
+        function updateChaosLevel(level) {
+            const element = document.getElementById('chaosLevel');
+            element.textContent = level;
+
+            // Entferne alte Klassen
+            element.classList.remove('chaos-low', 'chaos-medium', 'chaos-high', 'chaos-extreme', 'chaos-critical');
+
+            // Setze neue Klasse basierend auf Level
+            if (level < 50) {
+                element.classList.add('chaos-low');
+            } else if (level < 100) {
+                element.classList.add('chaos-medium');
+            } else if (level < 200) {
+                element.classList.add('chaos-high');
+            } else if (level < 300) {
+                element.classList.add('chaos-extreme');
+            } else {
+                element.classList.add('chaos-critical');
+            }
+        }
+
+        function updateMultiplier(multiplier) {
+            document.getElementById('chaosMultiplier').textContent = multiplier;
+        }
+
+        function updateDefenderCount(count) {
+            document.getElementById('defenderCount').textContent = count;
+        }
+
+        function updateCoreHP(hp, maxHP, percentage) {
+            document.getElementById('coreHP').textContent = `${hp}/${maxHP}`;
+
+            const bar = document.getElementById('coreHPBar');
+            bar.style.width = percentage + '%';
+            bar.textContent = Math.round(percentage) + '%';
+
+            // Farbe basierend auf HP%
+            bar.classList.remove('hp-critical', 'hp-warning', 'hp-good');
+            if (percentage < 30) {
+                bar.classList.add('hp-critical');
+            } else if (percentage < 60) {
+                bar.classList.add('hp-warning');
+            } else {
+                bar.classList.add('hp-good');
+            }
+        }
+
+        function updateWaves(completed) {
+            document.getElementById('wavesCompleted').textContent = completed;
+        }
+
+        // Update Leaderboard (ohne Flackern - nur Werte ändern!)
+        function updateLeaderboard(defenders) {
+            const container = document.getElementById('leaderboard');
+
+            if (!defenders || defenders.length === 0) {
+                // Zeige Platzhalter nur wenn Container leer ist
+                if (container.children.length === 0 || !container.querySelector('.leaderboard-item')) {
+                    container.innerHTML = '<div class="empty-state" style="text-align: center; color: #666; padding: 20px;">Noch keine Defender</div>';
+                }
+                return;
+            }
+
+            // Entferne Empty-State falls vorhanden
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) {
+                container.innerHTML = '';
+            }
+
+            // Update oder erstelle Items
+            defenders.forEach((defender, index) => {
+                let item = container.children[index];
+
+                // Erstelle Item nur wenn es nicht existiert
+                if (!item) {
+                    item = document.createElement('div');
+                    item.className = 'leaderboard-item new';
+                    item.innerHTML = `
+                        <div class="rank"></div>
+                        <div class="defender-info">
+                            <div class="defender-name"></div>
+                            <div class="defender-class"></div>
+                        </div>
+                        <div class="defender-stats">
+                            <div class="damage-stat"></div>
+                            <div class="kills-stat"></div>
+                        </div>
+                    `;
+                    container.appendChild(item);
+
+                    // Entferne "new" Klasse nach Animation
+                    setTimeout(() => item.classList.remove('new'), 500);
+                }
+
+                // Update nur die Werte (kein komplettes innerHTML!)
+                const rankEmoji = getRankEmoji(defender.rank);
+                const classColor = getClassColor(defender.class);
+
+                item.querySelector('.rank').textContent = rankEmoji;
+                item.querySelector('.defender-name').textContent = defender.name;
+
+                const classElement = item.querySelector('.defender-class');
+                classElement.textContent = `Lvl ${defender.level} ${defender.class}`;
+                classElement.className = 'defender-class ' + classColor;
+
+                item.querySelector('.damage-stat').textContent = defender.damage.toLocaleString() + ' DMG';
+                item.querySelector('.kills-stat').textContent = defender.kills + ' Kills';
+            });
+
+            // Entferne überschüssige Items (falls weniger Defender als vorher)
+            while (container.children.length > defenders.length) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // Hilfsfunktionen
+        function getRankEmoji(rank) {
+            switch(rank) {
+                case 1: return '🥇';
+                case 2: return '🥈';
+                case 3: return '🥉';
+                default: return `#${rank}`;
+            }
+        }
+
+        function getClassColor(className) {
+            const classMap = {
+                'Krieger': 'class-warrior',
+                'Bogenschütze': 'class-archer',
+                'Heiler': 'class-healer',
+                'Baumeister': 'class-builder',
+                'Tank': 'class-tank'
+            };
+            return classMap[className] || '';
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Auto-Update starten
+        setInterval(updateOverlay, CONFIG.updateInterval);
+
+        // Initial load
+        updateOverlay();
+    </script>
+</body>
+</html>

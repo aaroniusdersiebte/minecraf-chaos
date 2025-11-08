@@ -50,6 +50,13 @@ public class CommandHandler {
                 .executes(CommandHandler::listTowers))
             .then(CommandManager.literal("cleartowers")
                 .executes(CommandHandler::clearTowers))
+            .then(CommandManager.literal("leaderboard")
+                .executes(context -> showLeaderboard(context, "damage"))
+                .then(CommandManager.argument("type", StringArgumentType.word())
+                    .executes(context -> showLeaderboard(context,
+                        StringArgumentType.getString(context, "type")))))
+            .then(CommandManager.literal("scoreboard")
+                .executes(CommandHandler::toggleScoreboard))
         );
     }
 
@@ -396,6 +403,46 @@ public class CommandHandler {
         } catch (Exception e) {
             context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
             ChaosMod.LOGGER.error("Error clearing towers", e);
+            return 0;
+        }
+    }
+
+    private static int showLeaderboard(CommandContext<ServerCommandSource> context, String typeStr) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            StatsManager statsManager = ChaosMod.getStatsManager();
+
+            // Parse type
+            StatsManager.LeaderboardType type = StatsManager.LeaderboardType.fromString(typeStr);
+
+            // Zeige Top 10
+            statsManager.showLeaderboard(player, type, 10);
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error showing leaderboard", e);
+            return 0;
+        }
+    }
+
+    private static int toggleScoreboard(CommandContext<ServerCommandSource> context) {
+        try {
+            ScoreboardManager scoreboardManager = ChaosMod.getScoreboardManager();
+            var server = context.getSource().getServer();
+
+            boolean enabled = scoreboardManager.toggle(server);
+
+            String status = enabled ? "§aaktiviert" : "§cdeaktiviert";
+            context.getSource().sendFeedback(
+                () -> Text.literal("§6Live-Scoreboard " + status + "!"),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error toggling scoreboard", e);
             return 0;
         }
     }
