@@ -10,10 +10,13 @@
   "contact": {},
   "license": "MIT",
   "icon": "assets/chaosstream/icon.png",
-  "environment": "server",
+  "environment": "*",
   "entrypoints": {
     "main": [
       "com.chaosstream.ChaosMod"
+    ],
+    "client": [
+      "com.chaosstream.client.ChaosClient"
     ]
   },
   "mixins": [],

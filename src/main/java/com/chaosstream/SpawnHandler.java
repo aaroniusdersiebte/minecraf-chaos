@@ -285,6 +285,18 @@ public class SpawnHandler {
         VillagerClass vClass = defender.getVillagerClass();
         double attackDamage = defender.getCurrentDamage();
 
+        // WICHTIG: Lösche alle Standard-Villager-AI-Goals!
+        // Villager haben standardmäßig viele Goals (WalkToTargetGoal, etc.) die unsere Custom-Goals blockieren
+        villager.goalSelector.clear(goal -> true); // Löscht alle Goals
+
+        // HÖCHSTE PRIORITÄT: Patrol-Goal (gilt für alle Klassen)
+        // Nur aktiv wenn Patrol-Position gesetzt ist UND nicht im Follow-Modus
+        villager.goalSelector.add(0, new DefenderGoals.PatrolGoal(
+            villager,
+            defender,
+            0.6 // Bewegungsgeschwindigkeit
+        ));
+
         // Klassen-spezifische Goals
         switch (vClass) {
             case WARRIOR:
