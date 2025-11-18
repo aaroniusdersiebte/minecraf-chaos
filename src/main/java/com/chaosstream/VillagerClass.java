@@ -11,11 +11,11 @@ import net.minecraft.entity.effect.StatusEffects;
  * Jede Klasse hat eigene Stats, Equipment und Verhalten
  */
 public enum VillagerClass {
-    WARRIOR("Krieger", "§c", 40.0, 4.0, 1.0, true),
-    ARCHER("Bogenschütze", "§a", 30.0, 3.0, 1.0, false),
-    HEALER("Heiler", "§d", 50.0, 0.0, 0.9, false),
-    BUILDER("Baumeister", "§e", 35.0, 2.0, 0.95, false),
-    TANK("Tank", "§9", 80.0, 3.0, 0.85, true);
+    WARRIOR("Krieger", "§c", 40.0, 4.0, 1.8, true),    // Speed erhöht von 1.0 → 1.8 für Mobile Defense
+    ARCHER("Bogenschütze", "§a", 30.0, 3.0, 1.5, false), // Speed erhöht von 1.0 → 1.5 für Kiting
+    HEALER("Heiler", "§d", 50.0, 0.0, 1.0, false),      // Speed erhöht von 0.9 → 1.0
+    BUILDER("Baumeister", "§e", 35.0, 2.0, 1.0, false), // Speed erhöht von 0.95 → 1.0
+    TANK("Tank", "§9", 80.0, 3.0, 1.2, true);           // Speed erhöht von 0.85 → 1.2 (langsamer aber nicht zu langsam)
 
     private final String displayName;
     private final String colorCode;

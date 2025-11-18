@@ -1,5 +1,6 @@
 package com.chaosstream;
 
+import com.chaosstream.network.NetworkHandler;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -21,9 +22,15 @@ public class ChaosMod implements ModInitializer {
     private static StatsManager statsManager;
     private static ScoreboardManager scoreboardManager;
 
+    // Tick-Counter für Defender-Sync (alle 20 Ticks = 1 Sekunde)
+    private static int defenderSyncTicks = 0;
+
     @Override
     public void onInitialize() {
         LOGGER.info("Chaos Stream Mod initializing...");
+
+        // Initialize networking
+        NetworkHandler.initServer();
 
         // Initialize managers
         chaosManager = new ChaosManager();
@@ -39,6 +46,10 @@ public class ChaosMod implements ModInitializer {
         // Register tower placement handler
         TowerPlacementHandler placementHandler = new TowerPlacementHandler(towerManager, villageManager);
         placementHandler.register();
+
+        // Register defender interaction handler
+        DefenderInteractionHandler interactionHandler = new DefenderInteractionHandler(defenderManager);
+        interactionHandler.register();
 
         // Register commands
         CommandRegistrationCallback.EVENT.register(CommandHandler::register);
@@ -79,6 +90,13 @@ public class ChaosMod implements ModInitializer {
 
             // Export stats for OBS
             statsManager.exportStatsToJson(server);
+
+            // Send Defender-Sync to all clients (alle 20 Ticks = 1 Sekunde)
+            defenderSyncTicks++;
+            if (defenderSyncTicks >= 20) {
+                NetworkHandler.sendDefenderSync(server);
+                defenderSyncTicks = 0;
+            }
         });
 
         LOGGER.info("Chaos Stream Mod initialized!");
@@ -110,5 +128,9 @@ public class ChaosMod implements ModInitializer {
 
     public static ScoreboardManager getScoreboardManager() {
         return scoreboardManager;
+    }
+
+    public static WaveManager getWaveManager() {
+        return spawnHandler != null ? spawnHandler.getWaveManager() : null;
     }
 }

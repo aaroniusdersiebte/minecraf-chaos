@@ -1,0 +1,23 @@
+{
+  "key.chaosstream.open_defender_management": "Open Defender Management",
+  "key.chaosstream.open_command_center": "Open Command Center",
+  "category.chaosstream": "Chaos Stream Mod",
+
+  "gui.chaosstream.defender_management.title": "Defender Management",
+  "gui.chaosstream.defender_management.follow": "Follow",
+  "gui.chaosstream.defender_management.stay": "Stay",
+  "gui.chaosstream.defender_management.upgrade": "Upgrade",
+  "gui.chaosstream.defender_management.heal": "Heal",
+  "gui.chaosstream.defender_management.close": "Close",
+  "gui.chaosstream.defender_management.equipment": "Equipment",
+  "gui.chaosstream.defender_management.inventory": "Inventory",
+  "gui.chaosstream.defender_management.loading": "Loading...",
+  "gui.chaosstream.defender_management.stats.kills": "Kills",
+  "gui.chaosstream.defender_management.stats.damage": "Damage",
+  "gui.chaosstream.defender_management.stats.waves": "Waves",
+
+  "message.chaosstream.defender.follow": "%s is now following you!",
+  "message.chaosstream.defender.stay": "%s is now patrolling!",
+  "message.chaosstream.defender.not_found": "Defender not found!",
+  "message.chaosstream.defender.permission_denied": "Only server OPs can manage defenders!"
+}

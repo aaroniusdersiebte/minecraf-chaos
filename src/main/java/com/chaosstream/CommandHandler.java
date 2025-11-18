@@ -57,6 +57,24 @@ public class CommandHandler {
                         StringArgumentType.getString(context, "type")))))
             .then(CommandManager.literal("scoreboard")
                 .executes(CommandHandler::toggleScoreboard))
+            .then(CommandManager.literal("defender-stats")
+                .then(CommandManager.argument("uuid", StringArgumentType.string())
+                    .executes(CommandHandler::showDefenderStats)))
+            .then(CommandManager.literal("defender-upgrade")
+                .then(CommandManager.argument("uuid", StringArgumentType.string())
+                    .executes(CommandHandler::upgradeDefender)))
+            .then(CommandManager.literal("defender-heal")
+                .then(CommandManager.argument("uuid", StringArgumentType.string())
+                    .executes(CommandHandler::healDefender)))
+            .then(CommandManager.literal("defender-command")
+                .then(CommandManager.argument("uuid", StringArgumentType.string())
+                    .then(CommandManager.argument("action", StringArgumentType.word())
+                        .executes(CommandHandler::defenderCommand))))
+            .then(CommandManager.literal("defender-dismiss")
+                .then(CommandManager.argument("uuid", StringArgumentType.string())
+                    .executes(CommandHandler::dismissDefender)))
+            .then(CommandManager.literal("defender-clear-all")
+                .executes(CommandHandler::clearAllDefenders))
         );
     }
 
@@ -443,6 +461,301 @@ public class CommandHandler {
         } catch (Exception e) {
             context.getSource().sendError(Text.literal("§cError: " + e.getMessage()));
             ChaosMod.LOGGER.error("Error toggling scoreboard", e);
+            return 0;
+        }
+    }
+
+    // ===== DEFENDER MANAGEMENT COMMANDS =====
+
+    private static int showDefenderStats(CommandContext<ServerCommandSource> context) {
+        try {
+            String uuidStr = StringArgumentType.getString(context, "uuid");
+            DefenderManager defenderManager = ChaosMod.getDefenderManager();
+
+            java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
+            DefenderVillager defender = defenderManager.getDefender(uuid);
+
+            if (defender == null) {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Defender nicht gefunden!")
+                );
+                return 0;
+            }
+
+            // Zeige detaillierte Stats
+            var entity = defender.getLinkedEntity();
+            String hpInfo = entity != null ?
+                String.format("§c%.1f§7/§c%.1f", entity.getHealth(), entity.getMaxHealth()) :
+                "§7N/A";
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§8§m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§6§l📊 DEFENDER STATS 📊"),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Name: §f" + defender.getViewerName()),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Klasse: " + defender.getVillagerClass().getColorCode() +
+                    defender.getVillagerClass().getDisplayName()),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Level: §e" + defender.getLevel() + " §7(§e" +
+                    defender.getXp() + "§7/§e" + defender.getXPForNextLevel() + " XP§7)"),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7HP: " + hpInfo),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal(""),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§e⚔ COMBAT STATS ⚔"),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Kills: §e" + defender.getKills()),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Damage Dealt: §e" + defender.getDamageDealt()),
+                false
+            );
+            context.getSource().sendFeedback(
+                () -> Text.literal("§7Waves Survived: §e" + defender.getWavesCompleted()),
+                false
+            );
+
+            if (defender.getVillagerClass() == VillagerClass.HEALER) {
+                context.getSource().sendFeedback(
+                    () -> Text.literal("§7Healing Done: §a" + defender.getHealingDone()),
+                    false
+                );
+            }
+
+            if (defender.getVillagerClass() == VillagerClass.BUILDER) {
+                context.getSource().sendFeedback(
+                    () -> Text.literal("§7Core Repaired: §a" + defender.getCoreRepaired()),
+                    false
+                );
+            }
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§8§m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"),
+                false
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error showing defender stats", e);
+            return 0;
+        }
+    }
+
+    private static int upgradeDefender(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            String uuidStr = StringArgumentType.getString(context, "uuid");
+            DefenderManager defenderManager = ChaosMod.getDefenderManager();
+
+            java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
+            DefenderVillager defender = defenderManager.getDefender(uuid);
+
+            if (defender == null) {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Defender nicht gefunden!")
+                );
+                return 0;
+            }
+
+            // Upgrade Defender (DefenderManager checkt Items und upgraded Equipment)
+            String result = defenderManager.upgradeDefenderEquipment(player, defender);
+
+            if (result.startsWith("§a")) {
+                // Success
+                context.getSource().sendFeedback(
+                    () -> Text.literal(result),
+                    true
+                );
+                return 1;
+            } else {
+                // Error
+                context.getSource().sendError(Text.literal(result));
+                return 0;
+            }
+
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error upgrading defender", e);
+            return 0;
+        }
+    }
+
+    private static int healDefender(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            String uuidStr = StringArgumentType.getString(context, "uuid");
+            DefenderManager defenderManager = ChaosMod.getDefenderManager();
+
+            java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
+            DefenderVillager defender = defenderManager.getDefender(uuid);
+
+            if (defender == null) {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Defender nicht gefunden!")
+                );
+                return 0;
+            }
+
+            // Heile Defender (DefenderManager checkt Items und heilt)
+            String result = defenderManager.healDefender(player, defender);
+
+            if (result.startsWith("§a")) {
+                // Success
+                context.getSource().sendFeedback(
+                    () -> Text.literal(result),
+                    true
+                );
+                return 1;
+            } else {
+                // Error
+                context.getSource().sendError(Text.literal(result));
+                return 0;
+            }
+
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error healing defender", e);
+            return 0;
+        }
+    }
+
+    private static int defenderCommand(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+            String uuidStr = StringArgumentType.getString(context, "uuid");
+            String action = StringArgumentType.getString(context, "action");
+            DefenderManager defenderManager = ChaosMod.getDefenderManager();
+
+            java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
+            DefenderVillager defender = defenderManager.getDefender(uuid);
+
+            if (defender == null) {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Defender nicht gefunden!")
+                );
+                return 0;
+            }
+
+            // Toggle Follow/Stay
+            if (action.equalsIgnoreCase("follow")) {
+                defenderManager.setDefenderFollowMode(defender, player, true);
+                context.getSource().sendFeedback(
+                    () -> Text.literal("§a[Defender] §f" + defender.getViewerName() +
+                        " §afolgt dir jetzt!"),
+                    true
+                );
+                return 1;
+            } else if (action.equalsIgnoreCase("stay")) {
+                defenderManager.setDefenderFollowMode(defender, player, false);
+                context.getSource().sendFeedback(
+                    () -> Text.literal("§a[Defender] §f" + defender.getViewerName() +
+                        " §apatrouilliert jetzt!"),
+                    true
+                );
+                return 1;
+            } else {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Ungültige Aktion! Nutze: follow oder stay")
+                );
+                return 0;
+            }
+
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error executing defender command", e);
+            return 0;
+        }
+    }
+
+    private static int dismissDefender(CommandContext<ServerCommandSource> context) {
+        try {
+            String uuidStr = StringArgumentType.getString(context, "uuid");
+            DefenderManager defenderManager = ChaosMod.getDefenderManager();
+
+            java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
+            DefenderVillager defender = defenderManager.getDefender(uuid);
+
+            if (defender == null) {
+                context.getSource().sendError(
+                    Text.literal("§c[Defender] Defender nicht gefunden!")
+                );
+                return 0;
+            }
+
+            String defenderName = defender.getViewerName();
+
+            // Entferne Defender permanent
+            defenderManager.removeDefender(defender);
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§c[Defender] §f" + defenderName + " §cwurde entlassen!"),
+                true
+            );
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error dismissing defender", e);
+            return 0;
+        }
+    }
+
+    /**
+     * Löscht alle Defender (Admin-Command)
+     */
+    private static int clearAllDefenders(CommandContext<ServerCommandSource> context) {
+        try {
+            DefenderManager manager = DefenderManager.getInstance();
+            int count = manager.getAllDefenders().size();
+
+            if (count == 0) {
+                context.getSource().sendError(Text.literal("§c[Defender] Keine Defender vorhanden!"));
+                return 0;
+            }
+
+            // Lösche alle Defender
+            for (DefenderVillager defender : new java.util.ArrayList<>(manager.getAllDefenders())) {
+                // Entferne Entity aus Welt
+                if (defender.getLinkedEntity() != null && defender.getLinkedEntity().isAlive()) {
+                    defender.getLinkedEntity().discard();
+                }
+            }
+
+            // Leere Defender-Map
+            manager.clearAllDefenders();
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§c§l✓ Alle " + count + " Defender wurden gelöscht!"),
+                true
+            );
+
+            ChaosMod.LOGGER.info("Admin cleared all defenders: {} removed", count);
+            return 1;
+
+        } catch (Exception e) {
+            context.getSource().sendError(Text.literal("§c[Defender] Error: " + e.getMessage()));
+            ChaosMod.LOGGER.error("Error clearing all defenders", e);
             return 0;
         }
     }

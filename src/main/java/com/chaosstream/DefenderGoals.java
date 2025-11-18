@@ -13,6 +13,7 @@ import net.minecraft.util.math.Vec3d;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Custom AI Goals für Defender-Villagers
@@ -38,9 +39,9 @@ public class DefenderGoals {
         private boolean isRetreating;
         private VillagerEntity targetHealer;
 
-        private static final int PATH_UPDATE_INTERVAL = 10; // 0.5 Sekunden (optimiert)
+        private static final int PATH_UPDATE_INTERVAL = 40; // 2 Sekunden (optimiert für Performance)
         private static final double ATTACK_RANGE = 20.0;
-        private static final double MELEE_REACH = 3.0;
+        private static final double MELEE_REACH = 4.0; // Erhöht von 3.0 für besseres Melee-Combat
         private static final int ATTACK_COOLDOWN_TICKS = 20; // 1 Sekunde
         private static final int HP_UPDATE_INTERVAL = 40; // 2 Sekunden
         private static final int PATROL_UPDATE_INTERVAL = 100; // 5 Sekunden
@@ -157,10 +158,10 @@ public class DefenderGoals {
                         double distanceToMob = villager.squaredDistanceTo(bestTarget);
                         if (distanceToMob < ATTACK_RANGE * ATTACK_RANGE && distanceToCore < maxDistanceFromCore) {
                             this.currentTarget = bestTarget;
-                            this.villager.getNavigation().startMovingTo(bestTarget, 1.0);
+                            this.villager.getNavigation().startMovingTo(bestTarget, 2.0); // Erhöht von 1.0 für schnelles Mobile Defense
                         } else if (distanceToCore > maxDistanceFromCore) {
                             this.currentTarget = null;
-                            this.villager.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 1.0);
+                            this.villager.getNavigation().startMovingTo(corePos.getX(), corePos.getY(), corePos.getZ(), 2.0); // Erhöht von 1.0
                         }
                     } else {
                         // Keine Bedrohung - Patrol-Mode
@@ -335,8 +336,8 @@ public class DefenderGoals {
         private boolean isRetreating;
         private VillagerEntity targetHealer;
 
-        private static final int ATTACK_COOLDOWN_TICKS = 30; // 1.5 Sekunden
-        private static final int PATH_UPDATE_INTERVAL = 10;
+        private static final int ATTACK_COOLDOWN_TICKS = 20; // 1 Sekunde (erhöht von 30 für schnellere Schussrate)
+        private static final int PATH_UPDATE_INTERVAL = 40; // 2 Sekunden (optimiert für Performance)
         private static final int HP_UPDATE_INTERVAL = 40; // 2 Sekunden
         private static final int PATROL_UPDATE_INTERVAL = 100; // 5 Sekunden
         private static final double PATROL_DISTANCE_FROM_CORE = 15.0; // Optimal für Fernkampf
@@ -468,11 +469,11 @@ public class DefenderGoals {
                                 archer.getX() + dx * 10,
                                 archer.getY(),
                                 archer.getZ() + dz * 10,
-                                1.0
+                                1.5 // Erhöht von 1.0 für Mobile Defense Kiting
                             );
                         } else if (distanceToTarget > attackRange * attackRange) {
                             // Zu weit - näher ran
-                            archer.getNavigation().startMovingTo(bestTarget, 0.9);
+                            archer.getNavigation().startMovingTo(bestTarget, 1.5); // Erhöht von 0.9 für schnellere Positionierung
                         }
                         // Navigation.stop() entfernt - Archer bleiben mobil
                     } else {
@@ -1053,6 +1054,207 @@ public class DefenderGoals {
                     );
                 }
             }
+        }
+    }
+
+    /**
+     * Follow-Player-Goal: Defender folgt einem bestimmten Spieler
+     * Wird verwendet wenn Spieler den Defender in den "Folge-Modus" versetzt
+     */
+    public static class FollowPlayerGoal extends Goal {
+        private final VillagerEntity villager;
+        private final PlayerEntity targetPlayer;
+        private final double speed;
+        private final double minDistance;
+        private final double maxDistance;
+        private int updatePathTimer;
+
+        private static final int PATH_UPDATE_INTERVAL = 10; // 0.5 Sekunden
+
+        public FollowPlayerGoal(VillagerEntity villager, PlayerEntity targetPlayer, double speed, double minDistance, double maxDistance) {
+            this.villager = villager;
+            this.targetPlayer = targetPlayer;
+            this.speed = speed;
+            this.minDistance = minDistance;
+            this.maxDistance = maxDistance;
+            this.setControls(EnumSet.of(Control.MOVE, Control.LOOK));
+        }
+
+        @Override
+        public boolean canStart() {
+            if (!villager.isAlive() || !targetPlayer.isAlive()) {
+                return false;
+            }
+
+            double distance = villager.squaredDistanceTo(targetPlayer);
+            return distance > minDistance * minDistance;
+        }
+
+        @Override
+        public boolean shouldContinue() {
+            if (!villager.isAlive() || !targetPlayer.isAlive()) {
+                return false;
+            }
+
+            double distance = villager.squaredDistanceTo(targetPlayer);
+            return distance > minDistance * minDistance && distance < maxDistance * maxDistance;
+        }
+
+        @Override
+        public void start() {
+            this.updatePathTimer = 0;
+        }
+
+        @Override
+        public void tick() {
+            this.updatePathTimer--;
+
+            // Schaue zum Spieler
+            villager.getLookControl().lookAt(targetPlayer, 30.0F, 30.0F);
+
+            // Update Path alle 0.5 Sekunden
+            if (this.updatePathTimer <= 0) {
+                this.updatePathTimer = PATH_UPDATE_INTERVAL;
+
+                double distance = villager.squaredDistanceTo(targetPlayer);
+
+                // Wenn zu weit weg, laufe zum Spieler
+                if (distance > minDistance * minDistance) {
+                    villager.getNavigation().startMovingTo(targetPlayer, speed);
+                } else {
+                    // Wenn nah genug, stoppe
+                    villager.getNavigation().stop();
+                }
+            }
+
+            // Wenn Spieler zu weit weg ist, teleportiere Defender zum Spieler
+            double distance = villager.squaredDistanceTo(targetPlayer);
+            if (distance > maxDistance * maxDistance * 4) { // 4x max distance = teleport
+                BlockPos playerPos = targetPlayer.getBlockPos();
+                villager.refreshPositionAndAngles(
+                    playerPos.getX() + 0.5,
+                    playerPos.getY(),
+                    playerPos.getZ() + 0.5,
+                    villager.getYaw(),
+                    villager.getPitch()
+                );
+
+                // Teleport Particles
+                if (villager.getWorld() instanceof ServerWorld) {
+                    ServerWorld world = (ServerWorld) villager.getWorld();
+                    for (int i = 0; i < 20; i++) {
+                        world.spawnParticles(
+                            ParticleTypes.PORTAL,
+                            villager.getX(),
+                            villager.getY() + 1.0,
+                            villager.getZ(),
+                            1,
+                            0.3, 0.5, 0.3,
+                            0.1
+                        );
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void stop() {
+            villager.getNavigation().stop();
+        }
+    }
+
+    /**
+     * Patrol-Goal: Bewegt Defender zu gesetzter Patrol-Position
+     * Wird verwendet wenn Spieler per Map-Click eine Position setzt
+     */
+    public static class PatrolGoal extends Goal {
+        private final VillagerEntity villager;
+        private final DefenderVillager defenderData;
+        private final double speed;
+        private final double arrivalDistance;
+        private int patrolTimer;
+        private BlockPos currentPatrolPos;
+
+        public PatrolGoal(VillagerEntity villager, DefenderVillager defenderData, double speed) {
+            this.villager = villager;
+            this.defenderData = defenderData;
+            this.speed = speed;
+            this.arrivalDistance = 3.0; // Defender stoppt 3 Blöcke vor Ziel
+            this.patrolTimer = 0;
+            this.setControls(java.util.EnumSet.of(Control.MOVE));
+        }
+
+        @Override
+        public boolean canStart() {
+            // Nur starten wenn Patrol-Position gesetzt ist UND nicht im Follow-Modus
+            boolean canStart = defenderData.getLastPosition() != null && !defenderData.isFollowing();
+            if (canStart && currentPatrolPos == null) {
+                ChaosMod.LOGGER.info("PatrolGoal canStart: TRUE für {} (Ziel: {})",
+                    defenderData.getViewerName(), defenderData.getLastPosition());
+            }
+            return canStart;
+        }
+
+        @Override
+        public boolean shouldContinue() {
+            return canStart() && currentPatrolPos != null;
+        }
+
+        @Override
+        public void start() {
+            currentPatrolPos = defenderData.getLastPosition();
+            patrolTimer = 0;
+            ChaosMod.LOGGER.info("PatrolGoal START für {} -> Navigation zu {}",
+                defenderData.getViewerName(), currentPatrolPos);
+        }
+
+        @Override
+        public void tick() {
+            if (currentPatrolPos == null) return;
+
+            // Alle 20 Ticks (1 Sekunde) prüfen ob wir am Ziel sind
+            patrolTimer++;
+            if (patrolTimer >= 20) {
+                patrolTimer = 0;
+
+                double distance = villager.squaredDistanceTo(
+                    currentPatrolPos.getX() + 0.5,
+                    currentPatrolPos.getY(),
+                    currentPatrolPos.getZ() + 0.5
+                );
+
+                if (distance > arrivalDistance * arrivalDistance) {
+                    // Noch nicht am Ziel -> Bewege zum Ziel
+                    villager.getNavigation().startMovingTo(
+                        currentPatrolPos.getX() + 0.5,
+                        currentPatrolPos.getY(),
+                        currentPatrolPos.getZ() + 0.5,
+                        speed
+                    );
+                } else {
+                    // Am Ziel angekommen -> Patrouilliere in kleinem Radius (5 Blöcke)
+                    if (villager.getNavigation().isIdle()) {
+                        // Wähle zufälligen Punkt in 5-Block-Radius
+                        Random random = new Random();
+                        int offsetX = random.nextInt(11) - 5; // -5 bis +5
+                        int offsetZ = random.nextInt(11) - 5;
+
+                        BlockPos randomPos = currentPatrolPos.add(offsetX, 0, offsetZ);
+                        villager.getNavigation().startMovingTo(
+                            randomPos.getX() + 0.5,
+                            randomPos.getY(),
+                            randomPos.getZ() + 0.5,
+                            speed * 0.5 // Langsamere Patrol-Geschwindigkeit
+                        );
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void stop() {
+            villager.getNavigation().stop();
+            currentPatrolPos = null;
         }
     }
 }

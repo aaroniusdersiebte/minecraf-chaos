@@ -7,6 +7,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FileWatcher {
     private static final String COMMANDS_DIR = "chaos-commands";
@@ -16,6 +18,9 @@ public class FileWatcher {
     private final SpawnHandler spawnHandler;
     private Thread watcherThread;
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    // WICHTIG: Track verarbeitete Dateien um doppelte Verarbeitung zu verhindern
+    private final Set<String> recentlyProcessed = ConcurrentHashMap.newKeySet();
 
     public FileWatcher(ChaosManager chaosManager, SpawnHandler spawnHandler) {
         this.chaosManager = chaosManager;
@@ -36,6 +41,11 @@ public class FileWatcher {
         }
 
         running.set(true);
+
+        // WICHTIG: Initial Scan für existierende Dateien BEVOR Watcher startet!
+        // Verarbeite alle JSON-Dateien die bereits im Ordner liegen
+        processExistingFiles();
+
         watcherThread = new Thread(this::watchDirectory, "ChaosStream-FileWatcher");
         watcherThread.setDaemon(true);
         watcherThread.start();
@@ -50,13 +60,41 @@ public class FileWatcher {
         ChaosMod.LOGGER.info("File watcher stopped");
     }
 
+    /**
+     * Verarbeitet alle existierenden JSON-Dateien beim Start
+     * WICHTIG: Ohne dies werden Dateien die VOR dem Server-Start erstellt wurden ignoriert!
+     */
+    private void processExistingFiles() {
+        File dir = new File(COMMANDS_DIR);
+        if (!dir.exists() || !dir.isDirectory()) {
+            return;
+        }
+
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null || files.length == 0) {
+            ChaosMod.LOGGER.info("No existing command files found in {}", COMMANDS_DIR);
+            return;
+        }
+
+        ChaosMod.LOGGER.info("Found {} existing command file(s) - processing...", files.length);
+        for (File file : files) {
+            ChaosMod.LOGGER.info("Processing existing file: {}", file.getName());
+            processCommandFile(file);
+        }
+        ChaosMod.LOGGER.info("Finished processing existing command files");
+    }
+
     private void watchDirectory() {
         try {
             Path path = Paths.get(COMMANDS_DIR);
             WatchService watchService = FileSystems.getDefault().newWatchService();
-            path.register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY);
+            // WICHTIG: CREATE + MODIFY weil Windows CMD "echo > file" manchmal MODIFY statt CREATE auslöst!
+            // Doppeltes Processing wird durch File.delete() verhindert (Datei wird nach Verarbeitung gelöscht)
+            path.register(watchService,
+                StandardWatchEventKinds.ENTRY_CREATE,
+                StandardWatchEventKinds.ENTRY_MODIFY);
 
-            ChaosMod.LOGGER.info("Watching for command files in: {}", path.toAbsolutePath());
+            ChaosMod.LOGGER.info("Watching for command files in: {} (CREATE + MODIFY events)", path.toAbsolutePath());
 
             while (running.get()) {
                 WatchKey key;
@@ -98,10 +136,39 @@ public class FileWatcher {
 
     private void processCommandFile(File file) {
         try {
+            String fileName = file.getName();
+
+            // WICHTIG: Verhindere doppelte Verarbeitung (CREATE + MODIFY Events)
+            if (recentlyProcessed.contains(fileName)) {
+                ChaosMod.LOGGER.debug("File {} already processed recently, skipping", fileName);
+                return;
+            }
+
             // Wait a bit to ensure file is fully written
             Thread.sleep(100);
 
-            if (!file.exists()) return;
+            // WICHTIG: Prüfe ob Datei existiert (könnte bereits verarbeitet+gelöscht sein bei MODIFY Events)
+            if (!file.exists()) {
+                ChaosMod.LOGGER.debug("File {} no longer exists (already processed)", fileName);
+                return;
+            }
+
+            // WICHTIG: Prüfe ob Datei lesbar ist (könnte noch geschrieben werden)
+            if (!file.canRead() || file.length() == 0) {
+                ChaosMod.LOGGER.debug("File {} not ready yet (unreadable or empty)", fileName);
+                return;
+            }
+
+            // Markiere als verarbeitet (wird nach 5 Sekunden automatisch entfernt)
+            recentlyProcessed.add(fileName);
+            new Thread(() -> {
+                try {
+                    Thread.sleep(5000); // 5 Sekunden
+                    recentlyProcessed.remove(fileName);
+                } catch (InterruptedException e) {
+                    // Ignore
+                }
+            }).start();
 
             try (FileReader reader = new FileReader(file)) {
                 JsonObject json = GSON.fromJson(reader, JsonObject.class);

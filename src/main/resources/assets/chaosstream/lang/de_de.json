@@ -1,0 +1,23 @@
+{
+  "key.chaosstream.open_defender_management": "Defender-Verwaltung öffnen",
+  "key.chaosstream.open_command_center": "Kommando-Zentrale öffnen",
+  "category.chaosstream": "Chaos Stream Mod",
+
+  "gui.chaosstream.defender_management.title": "Defender-Verwaltung",
+  "gui.chaosstream.defender_management.follow": "Folgen",
+  "gui.chaosstream.defender_management.stay": "Bleiben",
+  "gui.chaosstream.defender_management.upgrade": "Aufwerten",
+  "gui.chaosstream.defender_management.heal": "Heilen",
+  "gui.chaosstream.defender_management.close": "Schließen",
+  "gui.chaosstream.defender_management.equipment": "Ausrüstung",
+  "gui.chaosstream.defender_management.inventory": "Inventar",
+  "gui.chaosstream.defender_management.loading": "Wird geladen...",
+  "gui.chaosstream.defender_management.stats.kills": "Kills",
+  "gui.chaosstream.defender_management.stats.damage": "Schaden",
+  "gui.chaosstream.defender_management.stats.waves": "Wellen",
+
+  "message.chaosstream.defender.follow": "%s folgt dir jetzt!",
+  "message.chaosstream.defender.stay": "%s patrouilliert jetzt!",
+  "message.chaosstream.defender.not_found": "Defender nicht gefunden!",
+  "message.chaosstream.defender.permission_denied": "Nur Server-OPs können Defender verwalten!"
+}

@@ -689,6 +689,18 @@ public class WaveManager {
         ChaosMod.LOGGER.info("GAME OVER - Village core destroyed at {}", corePos);
     }
 
+    /**
+     * Gibt aktive Spawn-Locations für Map-Rendering zurück.
+     * Wird von NetworkHandler verwendet für DefenderSyncPacket.
+     */
+    public List<BlockPos> getActiveSpawnLocations() {
+        List<BlockPos> positions = new ArrayList<>();
+        for (SpawnLocation loc : spawnLocations) {
+            positions.add(loc.pos);
+        }
+        return positions;
+    }
+
     private static class SpawnLocation {
         final BlockPos pos;
         final UUID playerUuid;

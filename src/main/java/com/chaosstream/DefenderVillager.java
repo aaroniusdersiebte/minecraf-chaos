@@ -1,7 +1,12 @@
 package com.chaosstream;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.inventory.SimpleInventory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.StringNbtReader;
 import net.minecraft.util.math.BlockPos;
 
 import java.util.UUID;
@@ -31,6 +36,12 @@ public class DefenderVillager {
     private long spawnTime;
     private BlockPos lastPosition;
 
+    // Behavior
+    private boolean following; // Folge-Modus Status (persistent)
+
+    // Inventar (9 Slots für Item-Storage)
+    private SimpleInventory inventory;
+
     // Linked Entity (nicht persistent)
     private transient VillagerEntity linkedEntity;
 
@@ -49,6 +60,8 @@ public class DefenderVillager {
         this.healingDone = 0;
         this.coreRepaired = 0;
         this.spawnTime = System.currentTimeMillis();
+        this.following = false; // Start im Patrouille-Modus
+        this.inventory = new SimpleInventory(9); // 9 Slots Inventar
     }
 
     /**
@@ -70,17 +83,38 @@ public class DefenderVillager {
 
         this.spawnTime = json.get("spawn_time").getAsLong();
 
-        if (json.has("last_position")) {
-            JsonObject pos = json.getAsJsonObject("last_position");
-            this.lastPosition = new BlockPos(
-                pos.get("x").getAsInt(),
-                pos.get("y").getAsInt(),
-                pos.get("z").getAsInt()
-            );
-        }
+        // WICHTIG: lastPosition wird beim Laden NICHT gesetzt!
+        // lastPosition ist nur für aktive Patrol-Commands, nicht für persistente Speicherung
+        // Beim Server-Start haben Defender KEINE Patrol-Position bis ein Command kommt
+        this.lastPosition = null;
 
         if (json.has("entity_uuid")) {
             this.entityUUID = UUID.fromString(json.get("entity_uuid").getAsString());
+        }
+
+        // Lade Behavior-Status
+        if (json.has("following")) {
+            this.following = json.get("following").getAsBoolean();
+        } else {
+            this.following = false; // Default für alte Saves
+        }
+
+        // Lade Inventar
+        this.inventory = new SimpleInventory(9);
+        if (json.has("inventory")) {
+            JsonArray inventoryArray = json.getAsJsonArray("inventory");
+            for (int i = 0; i < Math.min(inventoryArray.size(), 9); i++) {
+                JsonObject itemJson = inventoryArray.get(i).getAsJsonObject();
+                if (itemJson.has("nbt")) {
+                    try {
+                        NbtCompound nbt = StringNbtReader.parse(itemJson.get("nbt").getAsString());
+                        ItemStack stack = ItemStack.fromNbt(nbt);
+                        inventory.setStack(i, stack);
+                    } catch (Exception e) {
+                        // Fehler beim Parsen - Skip Item
+                    }
+                }
+            }
         }
     }
 
@@ -116,6 +150,23 @@ public class DefenderVillager {
         if (entityUUID != null) {
             json.addProperty("entity_uuid", entityUUID.toString());
         }
+
+        // Speichere Behavior-Status
+        json.addProperty("following", following);
+
+        // Speichere Inventar
+        JsonArray inventoryArray = new JsonArray();
+        for (int i = 0; i < 9; i++) {
+            JsonObject itemJson = new JsonObject();
+            ItemStack stack = inventory.getStack(i);
+            if (!stack.isEmpty()) {
+                NbtCompound nbt = new NbtCompound();
+                stack.writeNbt(nbt);
+                itemJson.addProperty("nbt", nbt.toString());
+            }
+            inventoryArray.add(itemJson);
+        }
+        json.add("inventory", inventoryArray);
 
         return json;
     }
@@ -313,6 +364,22 @@ public class DefenderVillager {
         if (entity != null) {
             this.entityUUID = entity.getUuid();
         }
+    }
+
+    public boolean isFollowing() {
+        return following;
+    }
+
+    public void setFollowing(boolean following) {
+        this.following = following;
+    }
+
+    public SimpleInventory getInventory() {
+        return inventory;
+    }
+
+    public void setInventory(SimpleInventory inventory) {
+        this.inventory = inventory;
     }
 
     /**
